@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for x in *
+for x in */
 do
     echo -e "Building $x\n\n"
     pushd $x
