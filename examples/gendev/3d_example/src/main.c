@@ -178,7 +178,7 @@ int main()
     JOY_setEventHandler(handleJoyEvent);
 
     //BMP_init(TRUE, PAL1, FALSE);
-    BMP_init(FALSE, PLAN_A, FALSE, 0);
+    BMP_init(FALSE, BG_A, FALSE, 0);
 
     //BGR ?
 
