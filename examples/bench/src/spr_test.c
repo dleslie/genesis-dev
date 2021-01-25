@@ -639,7 +639,7 @@ static u16 executePartic(u16 time, u16 numPartic, u16 preloadedTiles, u16 reallo
 
         VDP_showFPS(FALSE);
         VDP_showCPULoad();
-        VDP_waitVSync();
+        SYS_doVBlankProcess();
 
         score++;
     } while(getTime(TRUE) < endTime);
@@ -786,7 +786,7 @@ static u16 executeDonut(u16 time, u16 preloadedTiles)
         VDP_showCPULoad();
         SYS_enableInts();
 
-        VDP_waitVSync();
+        SYS_doVBlankProcess();
 
         score++;
         t -= 4;
@@ -903,7 +903,7 @@ static u16 execute(u16 time, u16 numSpr)
 
         VDP_showFPS(FALSE);
         VDP_showCPULoad();
-        VDP_waitVSync();
+        SYS_doVBlankProcess();
 
         score++;
     } while(getTime(TRUE) < endTime);
