@@ -1,0 +1,7 @@
+include/
+*.o
+*.bin
+*.elf
+*.bin
+*.32x
+symbol.txt
