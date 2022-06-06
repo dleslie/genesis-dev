@@ -25,6 +25,11 @@ static volatile uint16_t* const vdp_data_port = (uint16_t*) 0xC00000;
 static volatile uint16_t* const vdp_ctrl_port = (uint16_t*) 0xC00004;
 static volatile uint32_t* const vdp_ctrl_wide = (uint32_t*) 0xC00004;
 
+uint8_t SCREEN_HEIGHT;
+uint8_t SCREEN_HALF_H;
+uint8_t FPS;
+uint8_t pal_mode;
+
 // Palette vars
 static uint16_t pal_current[64];
 static uint16_t pal_next[64];
