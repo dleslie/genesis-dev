@@ -50,7 +50,7 @@ HWCCFLAGS = $(OPTION) -m68000 -Wall -O1 -c
 
 Z80FLAGS = -vb2
 
-ASFLAGS = -m68000 --register-prefix-optional -nostdlib
+ASFLAGS = -m68000 --register-prefix-optional
 LINKFLAGS = -T $(GENDEV)/ldscripts/sgdk.ld  -nostdlib
 SCDLINKFLAGS = -T scd/mdcd.ld -nostdlib
 
