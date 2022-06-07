@@ -28,16 +28,33 @@ MKISOFS = mkisofs
 
 SCD_LOADER = scd/LukeProjectCD
 
-OPTION =
-INCS = -I. -I$(GENDEV)/m68k-elf/include -I$(GENDEV)/m68k-elf/include -Isrc -Ires
-CCFLAGS = $(OPTION) -m68000 -Wall -O2 -c -fomit-frame-pointer
-HWCCFLAGS = $(OPTION) -m68000 -Wall -O1 -c -fomit-frame-pointer
+OPTION = -flto -fuse-linker-plugin -fomit-frame-pointer -ffreestanding
+
+INCS     = -Isrc -Ires -Iinc
+INCS    += -I$(MARSDEV)/m68k-elf/lib/gcc/m68k-elf/$(GCC_VER)/include
+INCS    += -I$(MARSDEV)/m68k-elf/include
+INCS    += -I$(MARSDEV)/m68k-elf/m68k-elf/include
+
+LIBS     = -L$(MARSDEV)/m68k-elf/lib/gcc/m68k-elf/$(GCC_VER) -lgcc
+LIBS    += -L$(GENDEV)/m68k-elf/lib -L$(GENDEV)/m68k-elf/lib/gcc/m68k-elf -L$(GENDEV)/m68k-elf/m68k-elf/lib
+LIBS    += -lnosys -lmd
+
+PLUGIN   = $(MARSDEV)/m68k-elf/libexec/gcc/m68k-elf/$(GCC_VER)
+LTO_SO   = liblto_plugin.so
+ifeq ($(OS),Windows_NT)
+	LTO_SO = liblto_plugin-0.dll
+endif
+
+CCFLAGS = $(OPTION) -m68000 -Wall -O2 -c
+HWCCFLAGS = $(OPTION) -m68000 -Wall -O1 -c
+
 Z80FLAGS = -vb2
-ASFLAGS = -m68000 --register-prefix-optional
-LIBS =  -L$(GENDEV)/m68k-elf/lib -L$(GENDEV)/m68k-elf/lib/gcc/m68k-elf -L$(GENDEV)/m68k-elf/m68k-elf/lib -lmd -lnosys 
-LINKFLAGS = -T $(GENDEV)/ldscripts/sgdk.ld -Map=output.map -nostdlib
+
+ASFLAGS = -m68000 --register-prefix-optional -nostdlib
+LINKFLAGS = -T $(GENDEV)/ldscripts/sgdk.ld  -nostdlib
 SCDLINKFLAGS = -T scd/mdcd.ld -nostdlib
-#ARCHIVES = $(GENDEV)/m68k-elf/lib/libmd.a $(GENDEV)/m68k-elf/lib/gcc/m68k-elf/$(GCC_VER)/libgcc.a $(GENDEV)/m68k-elf/m68k-elf/lib/libnosys.a
+
+ARCHIVES = $(GENDEV)/m68k-elf/lib/gcc/m68k-elf/$(GCC_VER)/libgcc.a $(GENDEV)/m68k-elf/m68k-elf/lib/libnosys.a
 
 RESOURCES=
 BOOT_RESOURCES=
@@ -121,10 +138,10 @@ out.iso: out.elf_scd
 	dd if=temp.bin of=$@ bs=8K conv=sync
 
 %.elf: $(OBJS) $(BOOT_RESOURCES)
-	$(LD) -o $@ $(LINKFLAGS) $(BOOT_RESOURCES) $(ARCHIVES) $(OBJS) $(LIBS)
+	$(CC) -o $@ $(LINKFLAGS) $(BOOT_RESOURCES) $(ARCHIVES) $(OBJS) $(LIBS)
 
 %.elf_scd: $(OBJS) $(SCDBOOT_RESOURCES)
-	$(LD) -o $@ $(SCDLINKFLAGS) $(SCDBOOT_RESOURCES) $(ARCHIVES) $(OBJS) $(LIBS)
+	$(CC) -o $@ $(SCDLINKFLAGS) $(SCDBOOT_RESOURCES) $(ARCHIVES) $(OBJS) $(LIBS)
 
 %.o80: %.s80
 	$(ASMZ80) $(Z80FLAGS) -o $@ $<
