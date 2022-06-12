@@ -14,3 +14,6 @@ include:
 		docker cp $$id:/marsdev/mars/include "."; \
 		docker cp $$id:/marsdev/mars/m68k-elf/include "."; \
 		docker container rm $$id
+
+build_broken:
+	docker container run --rm --name marsdev -v "/${pwd}/broken-examples":/data --user ${uid}:$(gid) dleslie/marsdev make -C data
