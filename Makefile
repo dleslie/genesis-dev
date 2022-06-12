@@ -1,12 +1,16 @@
-all: include
-	@echo "Run docker marsdev make in examples folder with: "
-	@echo "docker container run --rm --name marsdev -v \"/\$$PWD\":/data --user \$$(id -u):\$$(id -g) dleslie/marsdev make -C data"
+.PHONY: include
+
+uid=$(shell id -u)
+gid=$(shell id -g)
+pwd=$(shell pwd)
+
+all: include build
+
+build:
+	docker container run --rm --name marsdev -v "/${pwd}/examples":/data --user ${uid}:$(gid) dleslie/marsdev make -C data
 
 include:
-	@mkdir -p include/mars
-	@mkdir -p include/m68k-elf
 	@id=$$(docker container create dleslie/marsdev); \
-		docker cp $$id:/marsdev/mars/include "include/mars"; \
-		docker cp $$id:/marsdev/mars/m68k-elf/include "include/m68k-elf"; \
+		docker cp $$id:/marsdev/mars/include "."; \
+		docker cp $$id:/marsdev/mars/m68k-elf/include "."; \
 		docker container rm $$id
-
