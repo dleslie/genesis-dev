@@ -1,0 +1,4027 @@
+001   0000 C3 68 01        jp EntryPoint               ; Jump to the entry point
+002   0003 0000000000      db 0,0,0,0,0                ; Padding to 0008h
+003   0008                 
+004   0008                 include "core/macro.z80"
+001+  0008             ;****************************************************************************
+002+  0008             ; PollPCM
+003+  0008             ; Used to update PCM while not idle
+004+  0008             ;----------------------------------------------------------------------------
+005+  0008             ; breaks: af
+006+  0008             ;****************************************************************************
+007+  0008             
+008+  0008             ;PollPCM: macro
+009+  0008                 macro PollPCM
+010+  0008~                ld a, ($4000)
+011+  0008~                rrca
+012+  0008~                rst $08
+013+  0008                 endm
+014+  0008             
+015+  0008             ;****************************************************************************
+016+  0008             ; BankSwitch
+017+  0008             ; Switches into a new bank (won't update player status!)
+018+  0008             ;----------------------------------------------------------------------------
+019+  0008             ; input A .... New bank to switch into
+020+  0008             ; input HL ... Must be $60xx
+021+  0008             ;----------------------------------------------------------------------------
+022+  0008             ; breaks ..... AF
+023+  0008             ;****************************************************************************
+024+  0008             
+025+  0008             ;BankSwitch: macro
+026+  0008                 macro BankSwitch
+027+  0008~                ld (hl), a
+028+  0008~                rrca
+029+  0008~                ld (hl), a
+030+  0008~                rrca
+031+  0008~                ld (hl), a
+032+  0008~                rrca
+033+  0008~                ld (hl), a
+034+  0008~                rrca
+035+  0008~                ld (hl), a
+036+  0008~                rrca
+037+  0008~                ld (hl), a
+038+  0008~                rrca
+039+  0008~                ld (hl), a
+040+  0008~                ld (hl), h
+041+  0008~                rrca
+042+  0008~                ld (hl), a
+043+  0008                 endm
+005   0008                 include "player/pcm.z80"
+001+  0008             ;****************************************************************************
+002+  0008             ; UpdatePCM
+003+  0008             ; Updates PCM output upon a timer event
+004+  0008             ;****************************************************************************
+005+  0008             
+006+  0008             UpdatePCM:
+007+  0008 C9              ret                         ; $C9 = RET    = no PCM playback
+008+  0009                                             ; $D0 = RET NC = PCM playback
+009+  0009                 
+010+  0009 D9              exx                         ; Switch to PCM registers
+011+  000A             
+012+  000A             .doagain:
+013+  000A DD 36 00 27     ld (ix+0), $27              ; Acknowledge timer
+014+  000E DD 36 01 1F     ld (ix+1), $1F
+015+  0012                 ;push hl
+016+  0012                 ;ld hl, $1F27
+017+  0012                 ;ld ($4000), hl
+018+  0012                 ;pop hl
+019+  0012             
+020+  0012 7E              ld a, (hl)                  ; Fetch next sample
+021+  0013 3C              inc a                       ; Check if it's the end of the waveform
+022+  0014 28 0C           jr z, .stop
+023+  0016 DD 36 00 2A     ld (ix+0), $2A              ; Nope, send sample to YM2612
+024+  001A DD 77 01        ld (ix+1), a
+025+  001D                 
+026+  001D 2C              inc l                       ; Update buffer position
+027+  001E 28 19           jr z, .reload               ; Need to buffer more?
+028+  0020             
+029+  0020             .nopcm:
+030+  0020 D9              exx                         ; Switch to normal registers
+031+  0021 C9              ret                         ; End of subroutine
+032+  0022             
+033+  0022             .stop:
+034+  0022             ;    ld b, $00                   ; Stop playback
+035+  0022 3E C9           ld a, $C9                   ; Stop playback
+036+  0024 32 08 00        ld (UpdatePCM), a
+037+  0027 DD 36 00 2A     ld (ix+0), $2A              ; Turn off DAC
+038+  002B DD 36 01 80     ld (ix+1), $80
+039+  002F DD 36 00 2B     ld (ix+0), $2B
+040+  0033 DD 36 01 00     ld (ix+1), $00
+041+  0037 D9              exx                         ; Switch to normal registers
+042+  0038 C9              ret                         ; End of subroutine
+043+  0039             
+044+  0039             .reload:
+045+  0039 3A 98 12        ld a, (RAM_LastBank)        ; Bank switch if needed
+046+  003C B9              cp c
+047+  003D CA 57 00        jp z, .noswitchu
+048+  0040 79              ld a, c
+049+  0041 32 98 12        ld (RAM_LastBank), a
+050+  0044 21 00 60        ld hl, $6000
+051+  0047                 BankSwitch
+051+  0047 77          >    ld (hl), a
+051+  0048 0F          >    rrca
+051+  0049 77          >    ld (hl), a
+051+  004A 0F          >    rrca
+051+  004B 77          >    ld (hl), a
+051+  004C 0F          >    rrca
+051+  004D 77          >    ld (hl), a
+051+  004E 0F          >    rrca
+051+  004F 77          >    ld (hl), a
+051+  0050 0F          >    rrca
+051+  0051 77          >    ld (hl), a
+051+  0052 0F          >    rrca
+051+  0053 77          >    ld (hl), a
+051+  0054 74          >    ld (hl), h
+051+  0055 0F          >    rrca
+051+  0056 77          >    ld (hl), a
+052+  0057             .noswitchu:
+053+  0057                 
+054+  0057 21 F0 12        ld hl, RAM_PCMBuffer        ; Load samples into the buffer
+055+  005A                 
+056+  005A 1A              ld a, (de)                  ; Samples 1~4
+057+  005B 77              ld (hl), a
+058+  005C 2C              inc l
+059+  005D 1C              inc e
+060+  005E 1A              ld a, (de)
+061+  005F 77              ld (hl), a
+062+  0060 2C              inc l
+063+  0061 1C              inc e
+064+  0062 1A              ld a, (de)
+065+  0063 77              ld (hl), a
+066+  0064 2C              inc l
+067+  0065 1C              inc e
+068+  0066 1A              ld a, (de)
+069+  0067 77              ld (hl), a
+070+  0068 2C              inc l
+071+  0069 1C              inc e
+072+  006A                 
+073+  006A 1A              ld a, (de)                  ; Samples 5~8
+074+  006B 77              ld (hl), a
+075+  006C 2C              inc l
+076+  006D 1C              inc e
+077+  006E 1A              ld a, (de)
+078+  006F 77              ld (hl), a
+079+  0070 2C              inc l
+080+  0071 1C              inc e
+081+  0072 1A              ld a, (de)
+082+  0073 77              ld (hl), a
+083+  0074 2C              inc l
+084+  0075 1C              inc e
+085+  0076 1A              ld a, (de)
+086+  0077 77              ld (hl), a
+087+  0078 2C              inc l
+088+  0079 1C              inc e
+089+  007A                 
+090+  007A 1A              ld a, (de)                  ; Samples 9~12
+091+  007B 77              ld (hl), a
+092+  007C 2C              inc l
+093+  007D 1C              inc e
+094+  007E 1A              ld a, (de)
+095+  007F 77              ld (hl), a
+096+  0080 2C              inc l
+097+  0081 1C              inc e
+098+  0082 1A              ld a, (de)
+099+  0083 77              ld (hl), a
+100+  0084 2C              inc l
+101+  0085 1C              inc e
+102+  0086 1A              ld a, (de)
+103+  0087 77              ld (hl), a
+104+  0088 2C              inc l
+105+  0089 1C              inc e
+106+  008A                 
+107+  008A 1A              ld a, (de)                  ; Samples 13~16
+108+  008B 77              ld (hl), a
+109+  008C 2C              inc l
+110+  008D 1C              inc e
+111+  008E 1A              ld a, (de)
+112+  008F 77              ld (hl), a
+113+  0090 2C              inc l
+114+  0091 1C              inc e
+115+  0092 1A              ld a, (de)
+116+  0093 77              ld (hl), a
+117+  0094 2C              inc l
+118+  0095 1C              inc e
+119+  0096 1A              ld a, (de)
+120+  0097 77              ld (hl), a
+121+  0098 2C              inc l
+122+  0099 1C              inc e
+123+  009A                 
+124+  009A C2 A4 00        jp nz, .nobankchg           ; Update high bytes of address if needed
+125+  009D 14              inc d
+126+  009E C2 A4 00        jp nz, .nobankchg
+127+  00A1 16 80           ld d, $80
+128+  00A3 0C              inc c
+129+  00A4             .nobankchg:
+130+  00A4                 
+131+  00A4 2E F0           ld l, RAM_PCMBuffer&$FF     ; Go back to the beginning of the buffer
+132+  00A6 C3 0A 00        jp .doagain                 ; We took so long we should play the next
+133+  00A9                                               ; sample already ._.'
+134+  00A9             
+135+  00A9             ;****************************************************************************
+136+  00A9             ; PlayPCM* [event $0C]
+137+  00A9             ; Plays a PCM sample
+138+  00A9             ;----------------------------------------------------------------------------
+139+  00A9             ; input c .... current bank
+140+  00A9             ; input hl ... current address
+141+  00A9             ;----------------------------------------------------------------------------
+142+  00A9             ; breaks: af, b
+143+  00A9             ;****************************************************************************
+144+  00A9             
+145+  00A9             PlayPCMSFX:
+146+  00A9 CD C1 00        call PlayPCM                ; We're just a wrapper
+147+  00AC C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+148+  00AF             
+149+  00AF             PlayPCMBGM:
+150+  00AF                 PollPCM
+150+  00AF 3A 00 40    >    ld a, ($4000)
+150+  00B2 0F          >    rrca
+150+  00B3 CF          >    rst $08
+151+  00B4             
+152+  00B4 3A 8E 12        ld a, (RAM_Locked+6)        ; Check if channel is free
+153+  00B7 B7              or a
+154+  00B8 C2 BC 04        jp nz, ProcessBGMSkip1      ; Don't play sample if locked
+155+  00BB             
+156+  00BB CD C1 00        call PlayPCM                ; We're just a wrapper
+157+  00BE C3 07 04        jp ProcessBGMRun            ; End of subroutine
+158+  00C1             
+159+  00C1             PlayPCM:
+160+  00C1 3A EC 1F        ld a, (RAM_GlobalVol+$0C)   ; Are we allowed to play PCM?
+161+  00C4 B7              or a
+162+  00C5 C8              ret z
+163+  00C6                 
+164+  00C6 CD EA 02        call GetParam               ; Get sample ID
+165+  00C9                 
+166+  00C9 78              ld a, b
+167+  00CA D9              exx                         ; We'll modify PCM data now
+168+  00CB             
+169+  00CB 26 1C           ld h, RAM_PointerList>>8    ; Get offset in pointer list
+170+  00CD 6F              ld l, a
+171+  00CE             
+172+  00CE 56              ld d, (hl)                  ; Get PCM address
+173+  00CF 24              inc h
+174+  00D0 5E              ld e, (hl)
+175+  00D1 24              inc h
+176+  00D2 4E              ld c, (hl)
+177+  00D3                 
+178+  00D3 21 00 60        ld hl, $6000                ; Initial bank switch
+179+  00D6 79              ld a, c
+180+  00D7 32 98 12        ld (RAM_LastBank), a
+181+  00DA                 BankSwitch
+181+  00DA 77          >    ld (hl), a
+181+  00DB 0F          >    rrca
+181+  00DC 77          >    ld (hl), a
+181+  00DD 0F          >    rrca
+181+  00DE 77          >    ld (hl), a
+181+  00DF 0F          >    rrca
+181+  00E0 77          >    ld (hl), a
+181+  00E1 0F          >    rrca
+181+  00E2 77          >    ld (hl), a
+181+  00E3 0F          >    rrca
+181+  00E4 77          >    ld (hl), a
+181+  00E5 0F          >    rrca
+181+  00E6 77          >    ld (hl), a
+181+  00E7 74          >    ld (hl), h
+181+  00E8 0F          >    rrca
+181+  00E9 77          >    ld (hl), a
+182+  00EA                 
+183+  00EA 26 12           ld h, RAM_PCMBuffer>>8      ; Set buffer where the sample starts
+184+  00EC 7B              ld a, e
+185+  00ED F6 F0           or $F0
+186+  00EF 6F              ld l, a
+187+  00F0                 
+188+  00F0 45              ld b, l
+189+  00F1             .load1st:                       ; Copy initial samples into the buffer
+190+  00F1 1A              ld a, (de)
+191+  00F2 77              ld (hl), a
+192+  00F3 1C              inc e
+193+  00F4 2C              inc l
+194+  00F5 C2 F1 00        jp nz, .load1st
+195+  00F8 68              ld l, b
+196+  00F9                 
+197+  00F9 7B              ld a, e                     ; Check if the sample should skip ahead
+198+  00FA B7              or a                          ; already
+199+  00FB C2 05 01        jp nz, .noskip1st
+200+  00FE 14              inc d
+201+  00FF C2 05 01        jp nz, .noskip1st
+202+  0102 16 80           ld d, $80
+203+  0104 0C              inc c
+204+  0105             .noskip1st:
+205+  0105             
+206+  0105 D9              exx                         ; Back to standard registers
+207+  0106 3E D0           ld a, $D0                   ; Enable PCM playback
+208+  0108 32 08 00        ld (UpdatePCM), a
+209+  010B                 
+210+  010B DD 36 00 2B     ld (ix+0), $2B              ; Turn on DAC
+211+  010F DD 36 01 80     ld (ix+1), $80
+212+  0113 DD 36 00 2A     ld (ix+0), $2A
+213+  0117 DD 36 01 80     ld (ix+1), $80
+214+  011B             
+215+  011B C9              ret                         ; End of subroutine
+216+  011C             
+217+  011C             ;****************************************************************************
+218+  011C             ; StopPCM*
+219+  011C             ; Stops a PCM sample
+220+  011C             ;****************************************************************************
+221+  011C             
+222+  011C             StopPCMSFX:
+223+  011C CD 34 01        call StopPCM                ; We're just a wrapper
+224+  011F C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+225+  0122             
+226+  0122             StopPCMBGM:
+227+  0122                 PollPCM
+227+  0122 3A 00 40    >    ld a, ($4000)
+227+  0125 0F          >    rrca
+227+  0126 CF          >    rst $08
+228+  0127             
+229+  0127 3A 8E 12        ld a, (RAM_Locked+6)        ; Check if channel is free
+230+  012A B7              or a
+231+  012B C2 07 04        jp nz, ProcessBGMRun        ; Don't stop sample if locked
+232+  012E             
+233+  012E CD 34 01        call StopPCM                ; We're just a wrapper
+234+  0131 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+235+  0134             
+236+  0134             StopPCM:
+237+  0134 3E C9           ld a, $C9                   ; Stop PCM playback
+238+  0136 32 08 00        ld (UpdatePCM), a
+239+  0139             
+240+  0139 DD 36 00 2B     ld (ix+0), $2B              ; Disable DAC
+241+  013D DD 36 01 00     ld (ix+1), $00
+242+  0141             
+243+  0141 C9              ret                         ; End of subroutine
+244+  0142             
+245+  0142             ;****************************************************************************
+246+  0142             ; LockChannelPCM [event $EC]
+247+  0142             ; Locks the PCM channel
+248+  0142             ;****************************************************************************
+249+  0142             
+250+  0142             LockChannelPCM:
+251+  0142 3E 01           ld a, $01                   ; Lock PCM channel
+252+  0144 32 8E 12        ld (RAM_Locked+6), a
+253+  0147                 
+254+  0147 CD 34 01        call StopPCM                ; Stop PCM playback
+255+  014A C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+256+  014D             
+257+  014D             ;****************************************************************************
+258+  014D             ; SetPCMRate [command $07]
+259+  014D             ; Changes the sample rate of PCM
+260+  014D             ;****************************************************************************
+261+  014D             
+262+  014D             SetPCMRate:
+263+  014D 3A FC 1F        ld a, (RAM_ComBank)         ; Get new rate
+264+  0150 2F              cpl
+265+  0151                 
+266+  0151 47              ld b, a                     ; Set high bits of timer
+267+  0152 21 00 40        ld hl, $4000
+268+  0155 36 24           ld (hl), $24
+269+  0157 0F              rrca
+270+  0158 0F              rrca
+271+  0159 F6 C0           or $C0
+272+  015B 2C              inc l
+273+  015C 77              ld (hl), a
+274+  015D                 
+275+  015D 78              ld a, b                     ; Set low bits of timer
+276+  015E 2D              dec l
+277+  015F 36 25           ld (hl), $25
+278+  0161 E6 03           and $03
+279+  0163 2C              inc l
+280+  0164 77              ld (hl), a
+281+  0165                 
+282+  0165 C3 51 02        jp EndOfCommand             ; End of subroutine
+006   0168                 include "core/main.z80"
+001+  0168             ;****************************************************************************
+002+  0168             ; EntryPoint
+003+  0168             ; Where the program starts
+004+  0168             ;****************************************************************************
+005+  0168             
+006+  0168             EntryPoint:
+007+  0168 AF              xor a                       ; Reset Echo status (we don't clear
+008+  0169 32 F0 1F        ld (RAM_Status), a          ; RAM_Command since Echo_Init fills in values
+009+  016C 32 FB 1F        ld (RAM_Command2), a        ; before Echo gets to run!)
+010+  016F             
+011+  016F 31 E0 1F        ld sp, RAM_Stack            ; Init stack
+012+  0172             
+013+  0172 21 11 7F        ld hl, $7F11                ; Mute PSG
+014+  0175 36 9F           ld (hl), $9F
+015+  0177 36 BF           ld (hl), $BF
+016+  0179 36 DF           ld (hl), $DF
+017+  017B 36 FF           ld (hl), $FF
+018+  017D AF              xor a
+019+  017E 32 00 12        ld (RAM_PSGData), a
+020+  0181 32 10 12        ld (RAM_PSGData+16), a
+021+  0184 32 20 12        ld (RAM_PSGData+32), a
+022+  0187 32 30 12        ld (RAM_PSGData+48), a
+023+  018A             
+024+  018A 21 00 60        ld hl, $6000                ; Set default bank
+025+  018D 75              ld (hl), l
+026+  018E 75              ld (hl), l
+027+  018F 75              ld (hl), l
+028+  0190 75              ld (hl), l
+029+  0191 75              ld (hl), l
+030+  0192 75              ld (hl), l
+031+  0193 75              ld (hl), l
+032+  0194 75              ld (hl), l
+033+  0195 75              ld (hl), l
+034+  0196             
+035+  0196 DD 21 00 40     ld ix, $4000                ; YM2612 I/O ports base address
+036+  019A FD 26 40        ld iyh, $40
+037+  019D             
+038+  019D D9              exx                         ; Init PCM playback status
+039+  019E 06 00           ld b, $00                   ; Not playing
+040+  01A0 D9              exx
+041+  01A1             
+042+  01A1 DD 36 00 2B     ld (ix+0), $2B              ; Disable DAC by default
+043+  01A5 DD 36 01 00     ld (ix+1), $00
+044+  01A9             
+045+  01A9 1E 7F           ld e, $7F                   ; Mute all FM channels
+046+  01AB 3E 40           ld a, $40
+047+  01AD 06 04           ld b, 4
+048+  01AF             .mutefm:
+049+  01AF DD 77 00        ld (ix+0), a
+050+  01B2 DD 73 01        ld (ix+1), e
+051+  01B5 DD 77 02        ld (ix+2), a
+052+  01B8 DD 73 03        ld (ix+3), e
+053+  01BB 3C              inc a
+054+  01BC DD 77 00        ld (ix+0), a
+055+  01BF DD 73 01        ld (ix+1), e
+056+  01C2 DD 77 02        ld (ix+2), a
+057+  01C5 DD 73 03        ld (ix+3), e
+058+  01C8 3C              inc a
+059+  01C9 DD 77 00        ld (ix+0), a
+060+  01CC DD 73 01        ld (ix+1), e
+061+  01CF DD 77 02        ld (ix+2), a
+062+  01D2 DD 73 03        ld (ix+3), e
+063+  01D5 3C              inc a
+064+  01D6 3C              inc a
+065+  01D7 10 D6           djnz .mutefm
+066+  01D9             
+067+  01D9 DD 36 00 B4     ld (ix+0), $B4              ; Ensure all channels can be heard from both
+068+  01DD DD 36 01 C0     ld (ix+1), $C0              ; speakers (by default they're mute!)
+069+  01E1 DD 36 00 B5     ld (ix+0), $B5
+070+  01E5 DD 36 01 C0     ld (ix+1), $C0
+071+  01E9 DD 36 00 B6     ld (ix+0), $B6
+072+  01ED DD 36 01 C0     ld (ix+1), $C0
+073+  01F1 DD 36 02 B4     ld (ix+2), $B4
+074+  01F5 DD 36 03 C0     ld (ix+3), $C0
+075+  01F9 DD 36 02 B5     ld (ix+2), $B5
+076+  01FD DD 36 03 C0     ld (ix+3), $C0
+077+  0201 DD 36 02 B6     ld (ix+2), $B6
+078+  0205 DD 36 03 C0     ld (ix+3), $C0
+079+  0209             
+080+  0209 DD 36 00 24     ld (ix+0), $24              ; Init timers
+081+  020D DD 36 01 FE     ld (ix+1), $FE
+082+  0211 DD 36 00 25     ld (ix+0), $25
+083+  0215 DD 36 01 03     ld (ix+1), $03
+084+  0219 DD 36 00 26     ld (ix+0), $26
+085+  021D DD 36 01 C9     ld (ix+1), $C9
+086+  0221 DD 36 00 27     ld (ix+0), $27
+087+  0225 DD 36 01 3F     ld (ix+1), $3F
+088+  0229                 
+089+  0229 C3 66 02        jp IdleLoop                 ; Go into idle loop
+090+  022C             
+091+  022C             ;****************************************************************************
+092+  022C             ; RunCommand
+093+  022C             ; Checks which command to run
+094+  022C             ;----------------------------------------------------------------------------
+095+  022C             ; notes: doesn't return
+096+  022C             ;----------------------------------------------------------------------------
+097+  022C             ; To-do: replace with pointer list?
+098+  022C             ;****************************************************************************
+099+  022C             
+100+  022C             RunCommand:
+101+  022C 3D              dec a                       ; Command $01: load list
+102+  022D CA C2 02        jp z, LoadList
+103+  0230 3D              dec a                       ; Command $02: play SFX
+104+  0231 CA 89 05        jp z, PlaySFX
+105+  0234 3D              dec a                       ; Command $03: stop SFX
+106+  0235 CA A4 06        jp z, StopSFXCmd
+107+  0238 3D              dec a                       ; Command $04: play BGM
+108+  0239 CA 17 03        jp z, PlayBGM
+109+  023C 3D              dec a                       ; Command $05: stop BGM
+110+  023D CA D5 04        jp z, StopBGMCmd
+111+  0240 3D              dec a                       ; Command $06: resume BGM
+112+  0241 CA B5 03        jp z, ResumeBGM
+113+  0244 3D              dec a                       ; Command $07: set PCM rate
+114+  0245 CA 4D 01        jp z, SetPCMRate
+115+  0248 3D              dec a                       ; Command $08: pause BGM
+116+  0249 CA 5D 03        jp z, PauseBGM
+117+  024C             
+118+  024C                 PollPCM
+118+  024C 3A 00 40    >    ld a, ($4000)
+118+  024F 0F          >    rrca
+118+  0250 CF          >    rst $08
+119+  0251             
+120+  0251                 ; Bad command, ignore >:(
+121+  0251             
+122+  0251             ;****************************************************************************
+123+  0251             ; EndOfCommand
+124+  0251             ; Cleans up when a command finishes
+125+  0251             ;----------------------------------------------------------------------------
+126+  0251             ; notes: doesn't return
+127+  0251             ;****************************************************************************
+128+  0251             
+129+  0251             EndOfCommand:
+130+  0251 2A F8 1F        ld hl, ($1FF8)              ; Copy second slot into first
+131+  0254 22 FC 1F        ld ($1FFC), hl
+132+  0257 2A FA 1F        ld hl, ($1FFA)
+133+  025A 22 FE 1F        ld ($1FFE), hl
+134+  025D                 
+135+  025D AF              xor a                       ; Free up second slot
+136+  025E 32 FB 1F        ld (RAM_Command2), a
+137+  0261                 
+138+  0261                 PollPCM
+138+  0261 3A 00 40    >    ld a, ($4000)
+138+  0264 0F          >    rrca
+138+  0265 CF          >    rst $08
+139+  0266             
+140+  0266             ;****************************************************************************
+141+  0266             ; IdleLoop
+142+  0266             ; Loop that runs when not processing SFX or BGM
+143+  0266             ;----------------------------------------------------------------------------
+144+  0266             ; notes: doesn't return (d'oh)
+145+  0266             ;****************************************************************************
+146+  0266             
+147+  0266             IdleLoop:
+148+  0266 3A FF 1F        ld a, (RAM_Command)         ; Look for commands
+149+  0269 B7              or a
+150+  026A 20 C0           jr nz, RunCommand
+151+  026C             
+152+  026C                 PollPCM                     ; Poll PCM
+152+  026C 3A 00 40    >    ld a, ($4000)
+152+  026F 0F          >    rrca
+152+  0270 CF          >    rst $08
+153+  0271             
+154+  0271 3A 00 40        ld a, ($4000)               ; Tick?
+155+  0274 CB 4F           bit 1, a
+156+  0276 20 08           jr nz, DoTick
+157+  0278 CB 47           bit 0, a                    ; Poll PCM again
+158+  027A C4 08 00        call nz, UpdatePCM          ; Not using macro for optimization purposes
+159+  027D             
+160+  027D C3 66 02        jp IdleLoop                 ; Keep idling
+161+  0280             
+162+  0280             ;****************************************************************************
+163+  0280             ; DoTick
+164+  0280             ; Called whenever a new tick triggers
+165+  0280             ;----------------------------------------------------------------------------
+166+  0280             ; notes: doesn't return
+167+  0280             ;****************************************************************************
+168+  0280             
+169+  0280             DoTick:
+170+  0280                 PollPCM
+170+  0280 3A 00 40    >    ld a, ($4000)
+170+  0283 0F          >    rrca
+170+  0284 CF          >    rst $08
+171+  0285             
+172+  0285 DD 36 00 27     ld (ix+0), $27              ; Retrigger the timer
+173+  0289 DD 36 01 2F     ld (ix+1), $2F
+174+  028D             
+175+  028D                 PollPCM
+175+  028D 3A 00 40    >    ld a, ($4000)
+175+  0290 0F          >    rrca
+175+  0291 CF          >    rst $08
+176+  0292                 
+177+  0292 3A F1 1F        ld a, ($1FF1)               ; Refresh volume if needed
+178+  0295 B7              or a
+179+  0296 C4 47 10        call nz, RefreshVolume
+180+  0299             
+181+  0299             DoTick_SFX:                     ; Process SFXs
+182+  0299 C3 9C 02        jp DoTick_SFXSkip
+183+  029C             DoTick_SFXSkip:
+184+  029C             
+185+  029C                 PollPCM
+185+  029C 3A 00 40    >    ld a, ($4000)
+185+  029F 0F          >    rrca
+185+  02A0 CF          >    rst $08
+186+  02A1                 
+187+  02A1 CD 5E 07        call ProcessDirect            ; Process direct events
+188+  02A4             
+189+  02A4                 PollPCM
+189+  02A4 3A 00 40    >    ld a, ($4000)
+189+  02A7 0F          >    rrca
+189+  02A8 CF          >    rst $08
+190+  02A9                 
+191+  02A9 3A A9 12        ld a, (RAM_Paused)          ; BGMs are paused?
+192+  02AC B7              or a
+193+  02AD 20 03           jr nz, DoTick_BGMSkip
+194+  02AF             DoTick_BGM:                     ; Process BGMs
+195+  02AF C3 B2 02        jp DoTick_BGMSkip
+196+  02B2             DoTick_BGMSkip:
+197+  02B2             
+198+  02B2                 PollPCM
+198+  02B2 3A 00 40    >    ld a, ($4000)
+198+  02B5 0F          >    rrca
+198+  02B6 CF          >    rst $08
+199+  02B7             
+200+  02B7 C3 88 0C        jp UpdatePSG                ; Update PSG envelopes
+201+  02BA             DoTick_PSGSkip:
+202+  02BA             
+203+  02BA                 PollPCM
+203+  02BA 3A 00 40    >    ld a, ($4000)
+203+  02BD 0F          >    rrca
+203+  02BE CF          >    rst $08
+204+  02BF             
+205+  02BF C3 66 02        jp IdleLoop                 ; End of subroutine
+206+  02C2             
+207+  02C2             ;****************************************************************************
+208+  02C2             ; LoadList [command $01]
+209+  02C2             ; Loads the pointer list
+210+  02C2             ;****************************************************************************
+211+  02C2             
+212+  02C2             LoadList:
+213+  02C2             ;    ld hl, RAM_ComBank          ; Get command parameters
+214+  02C2             ;    ld c, (hl)
+215+  02C2             ;    inc l
+216+  02C2             ;    ld e, (hl)
+217+  02C2             ;    inc l
+218+  02C2             ;    ld d, (hl)
+219+  02C2             ;    ex de, hl
+220+  02C2                 
+221+  02C2 2A FD 1F        ld hl, (RAM_ComAddr)        ; Get command parameters
+222+  02C5 3A FC 1F        ld a, (RAM_ComBank)
+223+  02C8 4F              ld c, a
+224+  02C9             
+225+  02C9 11 00 1C        ld de, RAM_PointerList      ; Where the pointer list starts
+226+  02CC             
+227+  02CC             .loadloop:
+228+  02CC CD EA 02        call GetParam               ; Get high byte address
+229+  02CF 78              ld a, b                     ; Is it the end of the list?
+230+  02D0 B7              or a
+231+  02D1 CA E7 02        jp z, .loadend
+232+  02D4 12              ld (de), a                  ; Store high byte address
+233+  02D5 14              inc d
+234+  02D6                 
+235+  02D6 CD EA 02        call GetParam               ; Get low address byte
+236+  02D9 78              ld a, b
+237+  02DA 12              ld (de), a
+238+  02DB 14              inc d
+239+  02DC                 
+240+  02DC CD EA 02        call GetParam               ; Get bank byte
+241+  02DF 78              ld a, b
+242+  02E0 12              ld (de), a
+243+  02E1                 
+244+  02E1 15              dec d                       ; Go for next byte
+245+  02E2 15              dec d
+246+  02E3 1C              inc e
+247+  02E4 C3 CC 02        jp .loadloop
+248+  02E7             
+249+  02E7             .loadend:
+250+  02E7 C3 51 02        jp EndOfCommand             ; End of subroutine
+251+  02EA             
+252+  02EA             ;****************************************************************************
+253+  02EA             ; GetParam
+254+  02EA             ; Subroutine for getting the parameter byte
+255+  02EA             ;----------------------------------------------------------------------------
+256+  02EA             ; input c .... current bank
+257+  02EA             ; input hl ... current address
+258+  02EA             ;----------------------------------------------------------------------------
+259+  02EA             ; output b .... value
+260+  02EA             ; output c .... new bank
+261+  02EA             ; output hl ... new address
+262+  02EA             ;----------------------------------------------------------------------------
+263+  02EA             ; breaks: af
+264+  02EA             ;----------------------------------------------------------------------------
+265+  02EA             ; note: the C value gets incremented *only* when HL hits $0000 (this is
+266+  02EA             ; relevant if you consider using it to fetch from Z80 RAM, which should
+267+  02EA             ; never result in HL becoming $0000).
+268+  02EA             ;****************************************************************************
+269+  02EA             
+270+  02EA             GetParam:
+271+  02EA 3A 98 12        ld a, (RAM_LastBank)        ; Bank switch?
+272+  02ED B9              cp c
+273+  02EE CA 0A 03        jp z, .noswitchp
+274+  02F1 79              ld a, c
+275+  02F2 32 98 12        ld (RAM_LastBank), a
+276+  02F5 E5              push hl
+277+  02F6 21 00 60        ld hl, $6000
+278+  02F9                 BankSwitch
+278+  02F9 77          >    ld (hl), a
+278+  02FA 0F          >    rrca
+278+  02FB 77          >    ld (hl), a
+278+  02FC 0F          >    rrca
+278+  02FD 77          >    ld (hl), a
+278+  02FE 0F          >    rrca
+278+  02FF 77          >    ld (hl), a
+278+  0300 0F          >    rrca
+278+  0301 77          >    ld (hl), a
+278+  0302 0F          >    rrca
+278+  0303 77          >    ld (hl), a
+278+  0304 0F          >    rrca
+278+  0305 77          >    ld (hl), a
+278+  0306 74          >    ld (hl), h
+278+  0307 0F          >    rrca
+278+  0308 77          >    ld (hl), a
+279+  0309 E1              pop hl
+280+  030A             .noswitchp:
+281+  030A 46              ld b, (hl)                  ; Get value
+282+  030B             
+283+  030B 2C              inc l                       ; Get next address
+284+  030C C2 16 03        jp nz, .nonewbankp
+285+  030F 24              inc h
+286+  0310 C2 16 03        jp nz, .nonewbankp
+287+  0313 26 80           ld h, $80
+288+  0315 0C              inc c
+289+  0316             .nonewbankp:
+290+  0316             
+291+  0316 C9              ret                         ; End of subroutine
+007   0317                 include "core/bgm.z80"
+001+  0317             ;****************************************************************************
+002+  0317             ; PlayBGM [command $04]
+003+  0317             ; Plays a BGM
+004+  0317             ;----------------------------------------------------------------------------
+005+  0317             ; breaks: all
+006+  0317             ;****************************************************************************
+007+  0317             
+008+  0317             PlayBGM:
+009+  0317                 PollPCM
+009+  0317 3A 00 40    >    ld a, ($4000)
+009+  031A 0F          >    rrca
+009+  031B CF          >    rst $08
+010+  031C CD FB 04        call ClearBGM               ; Clear BGM resources
+011+  031F                 PollPCM
+011+  031F 3A 00 40    >    ld a, ($4000)
+011+  0322 0F          >    rrca
+011+  0323 CF          >    rst $08
+012+  0324             
+013+  0324 3A F0 1F        ld a, (RAM_Status)          ; Show BGM playback in Echo's status
+014+  0327 F6 02           or $02
+015+  0329 32 F0 1F        ld (RAM_Status), a
+016+  032C             
+017+  032C                 PollPCM
+017+  032C 3A 00 40    >    ld a, ($4000)
+017+  032F 0F          >    rrca
+017+  0330 CF          >    rst $08
+018+  0331             
+019+  0331 21 FC 1F        ld hl, RAM_ComBank          ; Get command parameters
+020+  0334 4E              ld c, (hl)
+021+  0335 2C              inc l
+022+  0336 5E              ld e, (hl)
+023+  0337 2C              inc l
+024+  0338 56              ld d, (hl)
+025+  0339             
+026+  0339                 PollPCM
+026+  0339 3A 00 40    >    ld a, ($4000)
+026+  033C 0F          >    rrca
+026+  033D CF          >    rst $08
+027+  033E             
+028+  033E AF              xor a                       ; Playing a BGM immediately unpauses playback
+029+  033F 32 A9 12        ld (RAM_Paused), a
+030+  0342             
+031+  0342 3C              inc a
+032+  0343 21 99 12        ld hl, RAM_BGMData          ; Set BGM as playing
+033+  0346 77              ld (hl), a
+034+  0347 2C              inc l                       ; No delays!
+035+  0348 77              ld (hl), a
+036+  0349 2C              inc l                       ; Store BGM start bank
+037+  034A 71              ld (hl), c
+038+  034B 2C              inc l                       ; Store BGM start address (low)
+039+  034C 73              ld (hl), e
+040+  034D 2C              inc l                       ; Store BGM start address (high)
+041+  034E 72              ld (hl), d
+042+  034F             
+043+  034F                 PollPCM
+043+  034F 3A 00 40    >    ld a, ($4000)
+043+  0352 0F          >    rrca
+043+  0353 CF          >    rst $08
+044+  0354             
+045+  0354 21 EA 03        ld hl, ProcessBGM           ; Tell Echo to process BGM
+046+  0357 22 B0 02        ld (DoTick_BGM+1), hl
+047+  035A                 
+048+  035A C3 51 02        jp EndOfCommand             ; End of subroutine
+049+  035D             
+050+  035D             ;****************************************************************************
+051+  035D             ; PauseBGM [command $08]
+052+  035D             ; Pauses a playing BGM
+053+  035D             ;----------------------------------------------------------------------------
+054+  035D             ; breaks: all
+055+  035D             ;****************************************************************************
+056+  035D             
+057+  035D             PauseBGM:
+058+  035D 3A 99 12        ld a, (RAM_BGMPlaying)      ; Is BGM even playing?
+059+  0360 B7              or a
+060+  0361 CA 51 02        jp z, EndOfCommand
+061+  0364                 
+062+  0364 3E 01           ld a, 1                     ; Halt BGM playback
+063+  0366 32 A9 12        ld (RAM_Paused), a
+064+  0369             
+065+  0369             ;----------------------------------------------------------------------------
+066+  0369             
+067+  0369 06 7F           ld b, $7F                   ; Mute all FM channels
+068+  036B 0E 07           ld c, 7
+069+  036D 21 8F 12        ld hl, RAM_Locked+7
+070+  0370             .mutefm:
+071+  0370                 PollPCM
+071+  0370 3A 00 40    >    ld a, ($4000)
+071+  0373 0F          >    rrca
+071+  0374 CF          >    rst $08
+072+  0375 7E              ld a, (hl)
+073+  0376 B7              or a
+074+  0377 20 04           jr nz, .nofmmute
+075+  0379 79              ld a, c
+076+  037A CD 36 0A        call SetFMVolTempLoad
+077+  037D             .nofmmute:
+078+  037D                 PollPCM
+078+  037D 3A 00 40    >    ld a, ($4000)
+078+  0380 0F          >    rrca
+078+  0381 CF          >    rst $08
+079+  0382 2D              dec l
+080+  0383 0D              dec c
+081+  0384 F2 70 03        jp p, .mutefm
+082+  0387                 
+083+  0387 06 04           ld b, 4                     ; Mute all PSG channels
+084+  0389 0E 0F           ld c, $0F
+085+  038B 11 90 12        ld de, RAM_Locked+8
+086+  038E 21 00 12        ld hl, RAM_PSGData
+087+  0391             .mutepsg:
+088+  0391                 PollPCM
+088+  0391 3A 00 40    >    ld a, ($4000)
+088+  0394 0F          >    rrca
+088+  0395 CF          >    rst $08
+089+  0396 1A              ld a, (de)
+090+  0397 B7              or a
+091+  0398 20 05           jr nz, .nopsgmute
+092+  039A 7E              ld a, (hl)
+093+  039B E6 80           and $80
+094+  039D B1              or c
+095+  039E 77              ld (hl), a
+096+  039F             .nopsgmute:
+097+  039F                 PollPCM
+097+  039F 3A 00 40    >    ld a, ($4000)
+097+  03A2 0F          >    rrca
+097+  03A3 CF          >    rst $08
+098+  03A4 7D              ld a, l
+099+  03A5 C6 10           add 16
+100+  03A7 6F              ld l, a
+101+  03A8 1C              inc e
+102+  03A9 10 E6           djnz .mutepsg
+103+  03AB             
+104+  03AB             ;----------------------------------------------------------------------------
+105+  03AB             
+106+  03AB 3A 8E 12        ld a, (RAM_Locked+6)        ; Mute PCM channel
+107+  03AE B7              or a
+108+  03AF CC 34 01        call z, StopPCM
+109+  03B2             
+110+  03B2             ;----------------------------------------------------------------------------
+111+  03B2             
+112+  03B2 C3 51 02        jp EndOfCommand             ; End of subroutine
+113+  03B5             
+114+  03B5             ;****************************************************************************
+115+  03B5             ; ResumeBGM [command $06]
+116+  03B5             ; Resumes a stopped BGM
+117+  03B5             ;----------------------------------------------------------------------------
+118+  03B5             ; breaks: all
+119+  03B5             ;****************************************************************************
+120+  03B5             
+121+  03B5             ResumeBGM:
+122+  03B5 3A 99 12        ld a, (RAM_BGMPlaying)      ; Was BGM even playing?
+123+  03B8 B7              or a
+124+  03B9 CA 51 02        jp z, EndOfCommand
+125+  03BC                 
+126+  03BC AF              xor a
+127+  03BD 32 A9 12        ld (RAM_Paused), a          ; Resume BGM playback
+128+  03C0                 
+129+  03C0 06 04           ld b, 4                     ; Restore PSG channels
+130+  03C2 11 93 12        ld de, RAM_Locked+11
+131+  03C5 21 3F 12        ld hl, RAM_PSGData+63
+132+  03C8             .resumepsg:
+133+  03C8                 PollPCM
+133+  03C8 3A 00 40    >    ld a, ($4000)
+133+  03CB 0F          >    rrca
+133+  03CC CF          >    rst $08
+134+  03CD 4E              ld c, (hl)
+135+  03CE 7D              ld a, l
+136+  03CF D6 0F           sub 15
+137+  03D1 6F              ld l, a
+138+  03D2 1A              ld a, (de)
+139+  03D3 B7              or a
+140+  03D4 20 05           jr nz, .nopsgresume
+141+  03D6 7E              ld a, (hl)
+142+  03D7 E6 80           and $80
+143+  03D9 B1              or c
+144+  03DA 77              ld (hl), a
+145+  03DB             .nopsgresume:
+146+  03DB                 PollPCM
+146+  03DB 3A 00 40    >    ld a, ($4000)
+146+  03DE 0F          >    rrca
+146+  03DF CF          >    rst $08
+147+  03E0 2D              dec l
+148+  03E1 1D              dec e
+149+  03E2 10 E4           djnz .resumepsg
+150+  03E4                 
+151+  03E4 CD 47 10        call RefreshVolume          ; Restore remaining channels
+152+  03E7 C3 51 02        jp EndOfCommand             ; End of subroutine
+153+  03EA             
+154+  03EA             ;****************************************************************************
+155+  03EA             ; ProcessBGM
+156+  03EA             ; Processes a tick for a BGM
+157+  03EA             ;----------------------------------------------------------------------------
+158+  03EA             ; breaks: all
+159+  03EA             ;****************************************************************************
+160+  03EA             
+161+  03EA             ProcessBGM:
+162+  03EA                 PollPCM
+162+  03EA 3A 00 40    >    ld a, ($4000)
+162+  03ED 0F          >    rrca
+162+  03EE CF          >    rst $08
+163+  03EF             
+164+  03EF 21 9A 12        ld hl, RAM_BGMData+1        ; BGM data address
+165+  03F2             
+166+  03F2 7E              ld a, (hl)                  ; Delaying?
+167+  03F3 3D              dec a
+168+  03F4 CA FB 03        jp z, .nodelay
+169+  03F7 77              ld (hl), a
+170+  03F8             
+171+  03F8 C3 B2 02        jp DoTick_BGMSkip           ; End of subroutine
+172+  03FB             
+173+  03FB             .nodelay:
+174+  03FB                 PollPCM
+174+  03FB 3A 00 40    >    ld a, ($4000)
+174+  03FE 0F          >    rrca
+174+  03FF CF          >    rst $08
+175+  0400             
+176+  0400 2C              inc l
+177+  0401 4E              ld c, (hl)                  ; Get current address
+178+  0402 2C              inc l
+179+  0403 5E              ld e, (hl)
+180+  0404 2C              inc l
+181+  0405 56              ld d, (hl)
+182+  0406 EB              ex de, hl
+183+  0407             
+184+  0407             ProcessBGMRun:
+185+  0407             ProcessBGMSkip:
+186+  0407                 PollPCM                     ; Fetch next event
+186+  0407 3A 00 40    >    ld a, ($4000)
+186+  040A 0F          >    rrca
+186+  040B CF          >    rst $08
+187+  040C CD EA 02        call GetParam
+188+  040F                 PollPCM
+188+  040F 3A 00 40    >    ld a, ($4000)
+188+  0412 0F          >    rrca
+188+  0413 CF          >    rst $08
+189+  0414             
+190+  0414 78              ld a, b                     ; Parse byte
+191+  0415             
+192+  0415 FE 08           cp $08
+193+  0417 DA 8A 07        jp c, NoteOnFMBGM           ; Events $00-$07: note on FM
+194+  041A FE 0B           cp $0B
+195+  041C DA 34 0D        jp c, NoteOnPSGBGM          ; Events $08-$0A: note on PSG (square)
+196+  041F CA AC 0D        jp z, NoteOnNoiseBGM        ; Event $0B: note on PSG (noise)
+197+  0422 FE 0C           cp $0C
+198+  0424 CA AF 00        jp z, PlayPCMBGM            ; Event $0C: play PCM
+199+  0427             
+200+  0427                 PollPCM
+200+  0427 3A 00 40    >    ld a, ($4000)
+200+  042A 0F          >    rrca
+200+  042B CF          >    rst $08
+201+  042C 78              ld a, b
+202+  042D             
+203+  042D FE 18           cp $18
+204+  042F DA 1B 08        jp c, NoteOffFMBGM          ; Events $10-$17: note off FM
+205+  0432 FE 1C           cp $1C
+206+  0434 DA FE 0D        jp c, NoteOffPSGBGM         ; Events $18-$1B: note off PSG
+207+  0437 CA 22 01        jp z, StopPCMBGM            ; Event $1C: note off PCM
+208+  043A             
+209+  043A                 PollPCM
+209+  043A 3A 00 40    >    ld a, ($4000)
+209+  043D 0F          >    rrca
+209+  043E CF          >    rst $08
+210+  043F 78              ld a, b
+211+  0440             
+212+  0440 FE FE           cp $FE
+213+  0442 CA D0 0F        jp z, SetDelayBGM           ; Event $FE: set delay
+214+  0445 FE FF           cp $FF
+215+  0447             ProcessBGMEventFF:
+216+  0447 CA CF 04        jp z, StopBGMEvent          ; Event $FF: stop BGM
+217+  044A FE FC           cp $FC
+218+  044C CA 6B 05        jp z, LoopBGM               ; Event $FC: loop BGM
+219+  044F FE FD           cp $FD
+220+  0451 CA 7A 05        jp z, SetLoopBGM            ; Event $FD: set loop point
+221+  0454             
+222+  0454                 PollPCM
+222+  0454 3A 00 40    >    ld a, ($4000)
+222+  0457 0F          >    rrca
+222+  0458 CF          >    rst $08
+223+  0459 78              ld a, b
+224+  045A             
+225+  045A FE 28           cp $28
+226+  045C DA E5 09        jp c, SetFMVolBGM           ; Events $28-$2B: set FM volume
+227+  045F FE 2C           cp $2C
+228+  0461 DA 53 0E        jp c, SetPSGVolBGM          ; Events $28-$2B: set PSG volume
+229+  0464             
+230+  0464                 PollPCM
+230+  0464 3A 00 40    >    ld a, ($4000)
+230+  0467 0F          >    rrca
+230+  0468 CF          >    rst $08
+231+  0469 78              ld a, b
+232+  046A             
+233+  046A FE 38           cp $38
+234+  046C DA 47 08        jp c, SetNoteFMBGM          ; Events $30-$37: set FM note
+235+  046F FE 3B           cp $3B
+236+  0471 DA 49 0F        jp c, SetNotePSGBGM         ; Events $38-$3A: set PSG note (square)
+237+  0474 CA 99 0F        jp z, SetNoteNoiseBGM       ; Event $3B: set PSG note (noise)
+238+  0477             
+239+  0477                 PollPCM
+239+  0477 3A 00 40    >    ld a, ($4000)
+239+  047A 0F          >    rrca
+239+  047B CF          >    rst $08
+240+  047C 78              ld a, b
+241+  047D             
+242+  047D FE 48           cp $48
+243+  047F DA B6 08        jp c, LoadFMBGM             ; Events $40-$47: load FM instrument
+244+  0482 FE 4C           cp $4C
+245+  0484 DA D8 0E        jp c, LoadPSGBGM            ; Events $48-$4B: load PSG instrument
+246+  0487             
+247+  0487                 PollPCM
+247+  0487 3A 00 40    >    ld a, ($4000)
+247+  048A 0F          >    rrca
+247+  048B CF          >    rst $08
+248+  048C 78              ld a, b
+249+  048D             
+250+  048D FE E0           cp $E0                      ; Events $D0-$DF: short set delay
+251+  048F DA E0 0F        jp c, SetDelayBGMShort
+252+  0492             
+253+  0492 FE F8           cp $F8                      ; Events $F0-$F7: set FM parameters
+254+  0494 DA 2F 0B        jp c, SetFMParamBGM
+255+  0497 FE FA           cp $FA                      ; Events $F8-$F9: set FM register
+256+  0499 DA 80 0B        jp c, SetFMRegBGM
+257+  049C CA 0B 10        jp z, SetFlagsBGM           ; Events $FA-$FB: set/clear flags
+258+  049F FE FB           cp $FB
+259+  04A1 CA 2C 10        jp z, ClearFlagsBGM
+260+  04A4             
+261+  04A4                 PollPCM                     ; FFFFFFFFF bad event >:(
+261+  04A4 3A 00 40    >    ld a, ($4000)
+261+  04A7 0F          >    rrca
+261+  04A8 CF          >    rst $08
+262+  04A9             ProcessBGMEnd:
+263+  04A9 C3 CF 04        jp StopBGMEvent             ; End of subroutine
+264+  04AC             
+265+  04AC             ProcessBGMSkip2:                ; This is where we land after a locked event
+266+  04AC                 PollPCM                       ; that had two bytes for the parameter
+266+  04AC 3A 00 40    >    ld a, ($4000)
+266+  04AF 0F          >    rrca
+266+  04B0 CF          >    rst $08
+267+  04B1 2C              inc l                         ; Skip first byte
+268+  04B2 C2 BC 04        jp nz, .nobankskip2
+269+  04B5 24              inc h
+270+  04B6 C2 BC 04        jp nz, .nobankskip2
+271+  04B9 26 80           ld h, $80
+272+  04BB 0C              inc c
+273+  04BC             .nobankskip2:
+274+  04BC             
+275+  04BC             ProcessBGMSkip1:                ; This is where we land after a locked event
+276+  04BC                 PollPCM                       ; that had one byte for the parameter
+276+  04BC 3A 00 40    >    ld a, ($4000)
+276+  04BF 0F          >    rrca
+276+  04C0 CF          >    rst $08
+277+  04C1 2C              inc l                         ; Skip byte
+278+  04C2 C2 CC 04        jp nz, .nobankskip1
+279+  04C5 24              inc h
+280+  04C6 C2 CC 04        jp nz, .nobankskip1
+281+  04C9 26 80           ld h, $80
+282+  04CB 0C              inc c
+283+  04CC             .nobankskip1:
+284+  04CC             
+285+  04CC C3 07 04        jp ProcessBGMRun            ; Keep processing
+286+  04CF             
+287+  04CF             ;****************************************************************************
+288+  04CF             ; StopBGM* [command $05, event $FF]
+289+  04CF             ; Stops BGM playback
+290+  04CF             ;****************************************************************************
+291+  04CF             
+292+  04CF             StopBGMEvent:
+293+  04CF CD DB 04        call StopBGM                ; We're just a wrapper
+294+  04D2 C3 B2 02        jp DoTick_BGMSkip           ; End of subroutine
+295+  04D5             
+296+  04D5             StopBGMCmd:
+297+  04D5 CD DB 04        call StopBGM                ; We're just a wrapper
+298+  04D8 C3 51 02        jp EndOfCommand             ; End of subroutine
+299+  04DB             
+300+  04DB             StopBGM:
+301+  04DB 3A F0 1F        ld a, (RAM_Status)          ; Hide BGM playback in Echo's status
+302+  04DE E6 FD           and $FD
+303+  04E0 32 F0 1F        ld (RAM_Status), a
+304+  04E3             
+305+  04E3                 PollPCM
+305+  04E3 3A 00 40    >    ld a, ($4000)
+305+  04E6 0F          >    rrca
+305+  04E7 CF          >    rst $08
+306+  04E8             
+307+  04E8 CD FB 04        call ClearBGM               ; Clear BGM resources
+308+  04EB                 PollPCM
+308+  04EB 3A 00 40    >    ld a, ($4000)
+308+  04EE 0F          >    rrca
+308+  04EF CF          >    rst $08
+309+  04F0             
+310+  04F0 AF              xor a                       ; Stop playback
+311+  04F1 32 99 12        ld (RAM_BGMPlaying), a
+312+  04F4 21 B2 02        ld hl, DoTick_BGMSkip
+313+  04F7 22 B0 02        ld (DoTick_BGM+1), hl
+314+  04FA             
+315+  04FA C9              ret                         ; End of subroutine
+316+  04FB             
+317+  04FB             ;****************************************************************************
+318+  04FB             ; ClearBGM
+319+  04FB             ; Clears BGM resources
+320+  04FB             ;****************************************************************************
+321+  04FB             
+322+  04FB             ClearBGM:
+323+  04FB 3A 8E 12        ld a, (RAM_Locked+6)        ; Stop PCM playback if needed
+324+  04FE B7              or a
+325+  04FF CC 34 01        call z, StopPCM
+326+  0502             
+327+  0502             ;----------------------------------------------------------------------------
+328+  0502             
+329+  0502 06 04           ld b, 4                     ; Reset all PSG channels
+330+  0504 11 3F 12        ld de, RAM_PSGData+48+15
+331+  0507 21 93 12        ld hl, RAM_Locked+11
+332+  050A             .killpsg:
+333+  050A                 PollPCM
+333+  050A 3A 00 40    >    ld a, ($4000)
+333+  050D 0F          >    rrca
+333+  050E CF          >    rst $08
+334+  050F                 
+335+  050F 36 00           ld (hl), $00                ; Reset BGM volume
+336+  0511                 
+337+  0511 7B              ld a, e
+338+  0512 D6 0F           sub 15
+339+  0514 5F              ld e, a
+340+  0515                 
+341+  0515 7E              ld a, (hl)                  ; Mute PSG channel if it isn't locked
+342+  0516 B7              or a
+343+  0517 20 02           jr nz, .nopsgkill
+344+  0519 AF              xor a
+345+  051A 12              ld (de), a
+346+  051B                 
+347+  051B             .nopsgkill:
+348+  051B                 PollPCM
+348+  051B 3A 00 40    >    ld a, ($4000)
+348+  051E 0F          >    rrca
+348+  051F CF          >    rst $08
+349+  0520                 
+350+  0520 1D              dec e
+351+  0521 2D              dec l
+352+  0522 10 E6           djnz .killpsg
+353+  0524             
+354+  0524             ;----------------------------------------------------------------------------
+355+  0524             
+356+  0524 06 08           ld b, 8                     ; Reset all FM channels
+357+  0526 11 4F 12        ld de, RAM_BGMFMVol+7
+358+  0529             .killfm:
+359+  0529                 PollPCM
+359+  0529 3A 00 40    >    ld a, ($4000)
+359+  052C 0F          >    rrca
+359+  052D CF          >    rst $08
+360+  052E                 
+361+  052E 3E 7F           ld a, $7F                   ; Reset BGM volume
+362+  0530 12              ld (de), a
+363+  0531 1D              dec e
+364+  0532                 
+365+  0532                 PollPCM
+365+  0532 3A 00 40    >    ld a, ($4000)
+365+  0535 0F          >    rrca
+365+  0536 CF          >    rst $08
+366+  0537                 
+367+  0537 7E              ld a, (hl)                  ; Kill FM channel if not locked
+368+  0538 B7              or a
+369+  0539 C2 58 05        jp nz, .nofmkill
+370+  053C 05              dec b
+371+  053D                 
+372+  053D 78              ld a, b
+373+  053E CD D8 0B        call KillFM
+374+  0541                 
+375+  0541                 PollPCM
+375+  0541 3A 00 40    >    ld a, ($4000)
+375+  0544 0F          >    rrca
+375+  0545 CF          >    rst $08
+376+  0546                 
+377+  0546 78              ld a, b                     ; Reset panning
+378+  0547 E6 04           and $04
+379+  0549 FD 6F           ld iyl, a
+380+  054B 78              ld a, b
+381+  054C E6 03           and $03
+382+  054E C6 B4           add $B4
+383+  0550 FD 77 00        ld (iy+0), a
+384+  0553 FD 36 01 C0     ld (iy+1), $C0
+385+  0557                 
+386+  0557 04              inc b
+387+  0558             .nofmkill:
+388+  0558 2D              dec l
+389+  0559 10 CE           djnz .killfm
+390+  055B             
+391+  055B             ;----------------------------------------------------------------------------
+392+  055B             
+393+  055B 21 50 12        ld hl, RAM_BGMFMPan         ; Reset panning status (for restoring)
+394+  055E 3E C0           ld a, $C0
+395+  0560 06 08           ld b, 8
+396+  0562             .initpanstat:
+397+  0562 77              ld (hl), a
+398+  0563 2C              inc l
+399+  0564 10 FC           djnz .initpanstat
+400+  0566                 
+401+  0566 AF              xor a                       ; Reset flags
+402+  0567 32 F2 1F        ld (RAM_Flags), a
+403+  056A             
+404+  056A C9              ret                         ; End of subroutine
+405+  056B             
+406+  056B             ;****************************************************************************
+407+  056B             ; LoopBGM [event $FC]
+408+  056B             ; Makes a BGM loop
+409+  056B             ;****************************************************************************
+410+  056B             
+411+  056B             LoopBGM:
+412+  056B                 PollPCM
+412+  056B 3A 00 40    >    ld a, ($4000)
+412+  056E 0F          >    rrca
+412+  056F CF          >    rst $08
+413+  0570                 
+414+  0570 2A 9F 12        ld hl, (RAM_BGMLoopPoint+1) ; Get looping address
+415+  0573 3A 9E 12        ld a, (RAM_BGMLoopPoint)
+416+  0576 4F              ld c, a
+417+  0577                 
+418+  0577 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+419+  057A             
+420+  057A             ;****************************************************************************
+421+  057A             ; SetLoopBGM [event $FD]
+422+  057A             ; Sets the BGM loop point
+423+  057A             ;****************************************************************************
+424+  057A             
+425+  057A             SetLoopBGM:
+426+  057A                 PollPCM
+426+  057A 3A 00 40    >    ld a, ($4000)
+426+  057D 0F          >    rrca
+426+  057E CF          >    rst $08
+427+  057F                 
+428+  057F 79              ld a, c                     ; Store loop point address
+429+  0580 32 9E 12        ld (RAM_BGMLoopPoint), a
+430+  0583 22 9F 12        ld (RAM_BGMLoopPoint+1), hl
+431+  0586                 
+432+  0586 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+008   0589                 include "core/sfx.z80"
+001+  0589             ;****************************************************************************
+002+  0589             ; PlaySFX [command $02]
+003+  0589             ; Plays a SFX
+004+  0589             ;----------------------------------------------------------------------------
+005+  0589             ; breaks: all
+006+  0589             ;****************************************************************************
+007+  0589             
+008+  0589             PlaySFX:
+009+  0589                 PollPCM
+009+  0589 3A 00 40    >    ld a, ($4000)
+009+  058C 0F          >    rrca
+009+  058D CF          >    rst $08
+010+  058E CD D4 06        call ClearSFX               ; Clear SFX resources
+011+  0591                 PollPCM
+011+  0591 3A 00 40    >    ld a, ($4000)
+011+  0594 0F          >    rrca
+011+  0595 CF          >    rst $08
+012+  0596             
+013+  0596 3A F0 1F        ld a, (RAM_Status)          ; Show SFX playback in Echo's status
+014+  0599 F6 01           or $01
+015+  059B 32 F0 1F        ld (RAM_Status), a
+016+  059E             
+017+  059E                 PollPCM
+017+  059E 3A 00 40    >    ld a, ($4000)
+017+  05A1 0F          >    rrca
+017+  05A2 CF          >    rst $08
+018+  05A3             
+019+  05A3 21 FC 1F        ld hl, RAM_ComBank          ; Get command parameters
+020+  05A6 4E              ld c, (hl)
+021+  05A7 2C              inc l
+022+  05A8 5E              ld e, (hl)
+023+  05A9 2C              inc l
+024+  05AA 56              ld d, (hl)
+025+  05AB             
+026+  05AB                 PollPCM
+026+  05AB 3A 00 40    >    ld a, ($4000)
+026+  05AE 0F          >    rrca
+026+  05AF CF          >    rst $08
+027+  05B0             
+028+  05B0 21 A1 12        ld hl, RAM_SFXData          ; Set SFX as playing
+029+  05B3 36 01           ld (hl), $01
+030+  05B5 2C              inc l                       ; No delays!
+031+  05B6 36 01           ld (hl), $01
+032+  05B8 2C              inc l                       ; Store SFX start bank
+033+  05B9 71              ld (hl), c
+034+  05BA 2C              inc l                       ; Store SFX start address (low)
+035+  05BB 73              ld (hl), e
+036+  05BC 2C              inc l                       ; Store SFX start address (high)
+037+  05BD 72              ld (hl), d
+038+  05BE             
+039+  05BE                 PollPCM
+039+  05BE 3A 00 40    >    ld a, ($4000)
+039+  05C1 0F          >    rrca
+039+  05C2 CF          >    rst $08
+040+  05C3             
+041+  05C3 21 D1 05        ld hl, ProcessSFX           ; Tell Echo to process SFX
+042+  05C6 22 9A 02        ld (DoTick_SFX+1), hl
+043+  05C9             
+044+  05C9                 PollPCM
+044+  05C9 3A 00 40    >    ld a, ($4000)
+044+  05CC 0F          >    rrca
+044+  05CD CF          >    rst $08
+045+  05CE C3 51 02        jp EndOfCommand             ; End of subroutine
+046+  05D1             
+047+  05D1             ;****************************************************************************
+048+  05D1             ; ProcessSFX
+049+  05D1             ; Processes a tick for a SFX
+050+  05D1             ;----------------------------------------------------------------------------
+051+  05D1             ; breaks: all
+052+  05D1             ;****************************************************************************
+053+  05D1             
+054+  05D1             ProcessSFX:
+055+  05D1                 PollPCM
+055+  05D1 3A 00 40    >    ld a, ($4000)
+055+  05D4 0F          >    rrca
+055+  05D5 CF          >    rst $08
+056+  05D6             
+057+  05D6 21 A2 12        ld hl, RAM_SFXData+1        ; SFX data address
+058+  05D9             
+059+  05D9 7E              ld a, (hl)                  ; Delaying?
+060+  05DA 3D              dec a
+061+  05DB CA E2 05        jp z, .nodelay
+062+  05DE 77              ld (hl), a
+063+  05DF             
+064+  05DF C3 9C 02        jp DoTick_SFXSkip           ; End of subroutine
+065+  05E2             
+066+  05E2             .nodelay:
+067+  05E2                 PollPCM
+067+  05E2 3A 00 40    >    ld a, ($4000)
+067+  05E5 0F          >    rrca
+067+  05E6 CF          >    rst $08
+068+  05E7             
+069+  05E7 2C              inc l                       ; Get current address
+070+  05E8 4E              ld c, (hl)
+071+  05E9 2C              inc l
+072+  05EA 5E              ld e, (hl)
+073+  05EB 2C              inc l
+074+  05EC 56              ld d, (hl)
+075+  05ED EB              ex de, hl
+076+  05EE             
+077+  05EE             ProcessSFXRun:
+078+  05EE                 PollPCM                     ; Fetch next event
+078+  05EE 3A 00 40    >    ld a, ($4000)
+078+  05F1 0F          >    rrca
+078+  05F2 CF          >    rst $08
+079+  05F3 CD EA 02        call GetParam
+080+  05F6                 PollPCM
+080+  05F6 3A 00 40    >    ld a, ($4000)
+080+  05F9 0F          >    rrca
+080+  05FA CF          >    rst $08
+081+  05FB             
+082+  05FB 78              ld a, b                     ; Parse byte
+083+  05FC             
+084+  05FC FE 08           cp $08
+085+  05FE DA 84 07        jp c, NoteOnFMSFX           ; Events $00-$07: note on FM
+086+  0601 FE 0B           cp $0B
+087+  0603 DA 2E 0D        jp c, NoteOnPSGSFX          ; Events $08-$0A: note on PSG (square)
+088+  0606 CA A6 0D        jp z, NoteOnNoiseSFX        ; Event $0B: note on PSG (noise)
+089+  0609 FE 0C           cp $0C
+090+  060B CA A9 00        jp z, PlayPCMSFX            ; Event $0C: note on PCM
+091+  060E             
+092+  060E                 PollPCM
+092+  060E 3A 00 40    >    ld a, ($4000)
+092+  0611 0F          >    rrca
+092+  0612 CF          >    rst $08
+093+  0613 78              ld a, b
+094+  0614             
+095+  0614 FE 18           cp $18
+096+  0616 DA 15 08        jp c, NoteOffFMSFX          ; Events $10-$17: note off FM
+097+  0619 FE 1C           cp $1C
+098+  061B DA F8 0D        jp c, NoteOffPSGSFX         ; Events $18-$1B: note off PSG
+099+  061E CA 1C 01        jp z, StopPCMSFX            ; Event $1C: note off PCM
+100+  0621             
+101+  0621                 PollPCM
+101+  0621 3A 00 40    >    ld a, ($4000)
+101+  0624 0F          >    rrca
+101+  0625 CF          >    rst $08
+102+  0626 78              ld a, b
+103+  0627             
+104+  0627 FE FE           cp $FE
+105+  0629 CA CA 0F        jp z, SetDelaySFX           ; Event $FE: set delay
+106+  062C FE FF           cp $FF
+107+  062E CA 9E 06        jp z, StopSFXEvent          ; Event $FF: stop SFX
+108+  0631             
+109+  0631                 PollPCM
+109+  0631 3A 00 40    >    ld a, ($4000)
+109+  0634 0F          >    rrca
+109+  0635 CF          >    rst $08
+110+  0636 78              ld a, b
+111+  0637             
+112+  0637 FE 28           cp $28
+113+  0639 DA D0 09        jp c, SetFMVolSFX           ; Events $28-$2B: set FM volume
+114+  063C FE 2C           cp $2C
+115+  063E DA 31 0E        jp c, SetPSGVolSFX          ; Events $28-$2B: set PSG volume
+116+  0641             
+117+  0641                 PollPCM
+117+  0641 3A 00 40    >    ld a, ($4000)
+117+  0644 0F          >    rrca
+117+  0645 CF          >    rst $08
+118+  0646 78              ld a, b
+119+  0647             
+120+  0647 FE 38           cp $38
+121+  0649 DA 41 08        jp c, SetNoteFMSFX          ; Events $30-$37: set FM note
+122+  064C FE 3B           cp $3B
+123+  064E DA 43 0F        jp c, SetNotePSGSFX         ; Events $38-$3A: set PSG note (square)
+124+  0651 CA 93 0F        jp z, SetNoteNoiseSFX       ; Event $3B: set PSG note (noise)
+125+  0654             
+126+  0654                 PollPCM
+126+  0654 3A 00 40    >    ld a, ($4000)
+126+  0657 0F          >    rrca
+126+  0658 CF          >    rst $08
+127+  0659 78              ld a, b
+128+  065A             
+129+  065A FE 48           cp $48
+130+  065C DA B0 08        jp c, LoadFMSFX             ; Events $40-$47: load FM instrument
+131+  065F FE 4C           cp $4C
+132+  0661 DA 9A 0E        jp c, LoadPSGSFX            ; Events $48-$4B: load PSG instrument
+133+  0664             
+134+  0664                 PollPCM
+134+  0664 3A 00 40    >    ld a, ($4000)
+134+  0667 0F          >    rrca
+134+  0668 CF          >    rst $08
+135+  0669 78              ld a, b
+136+  066A             
+137+  066A FE E0           cp $E0                      ; Events $D0-$DF: short set delay
+138+  066C DA D6 0F        jp c, SetDelaySFXShort
+139+  066F             
+140+  066F FE E8           cp $E8
+141+  0671 DA AA 0B        jp c, LockChannelFM         ; Events $E0-$E7: lock FM channel
+142+  0674 FE EC           cp $EC
+143+  0676 DA A6 0F        jp c, LockChannelPSG        ; Events $E8-$EB: lock PSG channel
+144+  0679 CA 42 01        jp z, LockChannelPCM        ; Event $EC: lock PCM channel
+145+  067C             
+146+  067C                 PollPCM
+146+  067C 3A 00 40    >    ld a, ($4000)
+146+  067F 0F          >    rrca
+146+  0680 CF          >    rst $08
+147+  0681 78              ld a, b
+148+  0682             
+149+  0682 FE F8           cp $F8                      ; Events $F0-$F7: set FM parameters
+150+  0684 DA 06 0B        jp c, SetFMParamSFX
+151+  0687 FE FA           cp $FA                      ; Events $F8-$F9: set FM register
+152+  0689 DA 7A 0B        jp c, SetFMRegSFX
+153+  068C CA 05 10        jp z, SetFlagsSFX           ; Events $FA-$FB: set/clear flags
+154+  068F FE FB           cp $FB
+155+  0691 CA 26 10        jp z, ClearFlagsSFX
+156+  0694                 
+157+  0694 FE FC           cp $FC
+158+  0696 CA 40 07        jp z, LoopSFX               ; Event $FC: loop SFX
+159+  0699 FE FD           cp $FD
+160+  069B CA 4F 07        jp z, SetLoopSFX            ; Event $FD: set loop point
+161+  069E             
+162+  069E             ;****************************************************************************
+163+  069E             ; StopSFX* [command $03, event $FF]
+164+  069E             ; Stops SFX playback
+165+  069E             ;----------------------------------------------------------------------------
+166+  069E             ; breaks: all
+167+  069E             ;****************************************************************************
+168+  069E             
+169+  069E             StopSFXEvent:
+170+  069E CD AA 06        call StopSFX                ; We're just a wrapper
+171+  06A1 C3 9C 02        jp DoTick_SFXSkip           ; End of subroutine
+172+  06A4             
+173+  06A4             StopSFXCmd:
+174+  06A4 CD AA 06        call StopSFX                ; We're just a wrapper
+175+  06A7 C3 51 02        jp EndOfCommand             ; End of subroutine
+176+  06AA             
+177+  06AA             StopSFX:
+178+  06AA                 PollPCM
+178+  06AA 3A 00 40    >    ld a, ($4000)
+178+  06AD 0F          >    rrca
+178+  06AE CF          >    rst $08
+179+  06AF             
+180+  06AF 3A F0 1F        ld a, (RAM_Status)          ; Hide SFX playback in Echo's status
+181+  06B2 E6 FE           and $FE
+182+  06B4 32 F0 1F        ld (RAM_Status), a
+183+  06B7             
+184+  06B7                 PollPCM
+184+  06B7 3A 00 40    >    ld a, ($4000)
+184+  06BA 0F          >    rrca
+184+  06BB CF          >    rst $08
+185+  06BC             
+186+  06BC AF              xor a                       ; Stop playback
+187+  06BD 32 A1 12        ld (RAM_SFXPlaying), a
+188+  06C0 21 9C 02        ld hl, DoTick_SFXSkip
+189+  06C3 22 9A 02        ld (DoTick_SFX+1), hl
+190+  06C6             
+191+  06C6                 PollPCM
+191+  06C6 3A 00 40    >    ld a, ($4000)
+191+  06C9 0F          >    rrca
+191+  06CA CF          >    rst $08
+192+  06CB CD D4 06        call ClearSFX               ; Clear SFX resources
+193+  06CE             
+194+  06CE                 PollPCM
+194+  06CE 3A 00 40    >    ld a, ($4000)
+194+  06D1 0F          >    rrca
+194+  06D2 CF          >    rst $08
+195+  06D3 C9              ret                         ; End of subroutine
+196+  06D4             
+197+  06D4             ;****************************************************************************
+198+  06D4             ; ClearSFX
+199+  06D4             ; Clears SFX resources
+200+  06D4             ;----------------------------------------------------------------------------
+201+  06D4             ; breaks: all
+202+  06D4             ;****************************************************************************
+203+  06D4             
+204+  06D4             ClearSFX:
+205+  06D4 3A 8E 12        ld a, (RAM_Locked+6)        ; Stop PCM playback if needed
+206+  06D7 B7              or a
+207+  06D8 C4 34 01        call nz, StopPCM
+208+  06DB             
+209+  06DB             ;----------------------------------------------------------------------------
+210+  06DB             
+211+  06DB 06 04           ld b, 4                     ; Look for locked PSG channels
+212+  06DD 11 93 12        ld de, RAM_Locked+11
+213+  06E0             .unlockpsg:
+214+  06E0             
+215+  06E0                 PollPCM
+215+  06E0 3A 00 40    >    ld a, ($4000)
+215+  06E3 0F          >    rrca
+215+  06E4 CF          >    rst $08
+216+  06E5             
+217+  06E5 1A              ld a, (de)                    ; Check if this channel needs unlocking
+218+  06E6 B7              or a
+219+  06E7 28 38           jr z, .psgfree
+220+  06E9 AF              xor a
+221+  06EA 12              ld (de), a
+222+  06EB             
+223+  06EB                 PollPCM
+223+  06EB 3A 00 40    >    ld a, ($4000)
+223+  06EE 0F          >    rrca
+223+  06EF CF          >    rst $08
+224+  06F0             
+225+  06F0 78              ld a, b                       ; Restore BGM volume
+226+  06F1 0F              rrca
+227+  06F2 0F              rrca
+228+  06F3 0F              rrca
+229+  06F4 0F              rrca
+230+  06F5 3D              dec a
+231+  06F6 26 12           ld h, RAM_PSGData>>8
+232+  06F8 6F              ld l, a
+233+  06F9 4E              ld c, (hl)
+234+  06FA D6 0F           sub 15
+235+  06FC 6F              ld l, a
+236+  06FD 71              ld (hl), c
+237+  06FE             
+238+  06FE                 PollPCM
+238+  06FE 3A 00 40    >    ld a, ($4000)
+238+  0701 0F          >    rrca
+238+  0702 CF          >    rst $08
+239+  0703 D5              push de
+240+  0704             
+241+  0704 7D              ld a, l                       ; Restore BGM envelope
+242+  0705 C6 08           add 8
+243+  0707 6F              ld l, a
+244+  0708 C6 04           add 12-8
+245+  070A 5F              ld e, a
+246+  070B 54              ld d, h
+247+  070C                 
+248+  070C                 PollPCM
+248+  070C 3A 00 40    >    ld a, ($4000)
+248+  070F 0F          >    rrca
+248+  0710 CF          >    rst $08
+249+  0711             
+250+  0711 1A              ld a, (de)
+251+  0712 77              ld (hl), a
+252+  0713 2C              inc l
+253+  0714 1C              inc e
+254+  0715 1A              ld a, (de)
+255+  0716 77              ld (hl), a
+256+  0717 2C              inc l
+257+  0718 1C              inc e
+258+  0719 1A              ld a, (de)
+259+  071A 77              ld (hl), a
+260+  071B             
+261+  071B D1              pop de
+262+  071C                 PollPCM
+262+  071C 3A 00 40    >    ld a, ($4000)
+262+  071F 0F          >    rrca
+262+  0720 CF          >    rst $08
+263+  0721             
+264+  0721             .psgfree:
+265+  0721 1D              dec e                         ; Go for next PSG channel to unlock
+266+  0722 10 BC           djnz .unlockpsg
+267+  0724             
+268+  0724             ;----------------------------------------------------------------------------
+269+  0724             
+270+  0724 06 08           ld b, 8                     ; Look for locked FM channels
+271+  0726             .unlockfm:
+272+  0726             
+273+  0726                 PollPCM
+273+  0726 3A 00 40    >    ld a, ($4000)
+273+  0729 0F          >    rrca
+273+  072A CF          >    rst $08
+274+  072B             
+275+  072B 1A              ld a, (de)                    ; Check if this channel needs unlocking
+276+  072C B7              or a
+277+  072D CA 3C 07        jp z, .fmfree
+278+  0730 AF              xor a
+279+  0731 12              ld (de), a
+280+  0732             
+281+  0732                 PollPCM
+281+  0732 3A 00 40    >    ld a, ($4000)
+281+  0735 0F          >    rrca
+281+  0736 CF          >    rst $08
+282+  0737                 
+283+  0737 05              dec b                         ; Restore FM channel
+284+  0738 CD 55 0C        call RestoreFM
+285+  073B 04              inc b
+286+  073C                 
+287+  073C             .fmfree:
+288+  073C 1D              dec e                         ; Go for next FM channel to unlock
+289+  073D 10 E7           djnz .unlockfm
+290+  073F             
+291+  073F             ;----------------------------------------------------------------------------
+292+  073F             
+293+  073F C9              ret                         ; End of subroutine
+294+  0740             
+295+  0740             ;****************************************************************************
+296+  0740             ; LoopSFX [event $FC]
+297+  0740             ; Makes a SFX loop
+298+  0740             ;****************************************************************************
+299+  0740             
+300+  0740             LoopSFX:
+301+  0740                 PollPCM
+301+  0740 3A 00 40    >    ld a, ($4000)
+301+  0743 0F          >    rrca
+301+  0744 CF          >    rst $08
+302+  0745                 
+303+  0745 2A A7 12        ld hl, (RAM_SFXLoopPoint+1) ; Get looping address
+304+  0748 3A A6 12        ld a, (RAM_SFXLoopPoint)
+305+  074B 4F              ld c, a
+306+  074C                 
+307+  074C C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+308+  074F             
+309+  074F             ;****************************************************************************
+310+  074F             ; SetLoopSFX [event $FD]
+311+  074F             ; Sets the SFX loop point
+312+  074F             ;****************************************************************************
+313+  074F             
+314+  074F             SetLoopSFX:
+315+  074F                 PollPCM
+315+  074F 3A 00 40    >    ld a, ($4000)
+315+  0752 0F          >    rrca
+315+  0753 CF          >    rst $08
+316+  0754                 
+317+  0754 79              ld a, c                     ; Store loop point address
+318+  0755 32 A6 12        ld (RAM_SFXLoopPoint), a
+319+  0758 22 A7 12        ld (RAM_SFXLoopPoint+1), hl
+320+  075B                 
+321+  075B C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+009   075E                 include "core/direct.z80"
+001+  075E             ;****************************************************************************
+002+  075E             ; ProcessDirect
+003+  075E             ; Processes the direct event stream.
+004+  075E             ;----------------------------------------------------------------------------
+005+  075E             ; breaks: all
+006+  075E             ;****************************************************************************
+007+  075E             
+008+  075E             ProcessDirect:
+009+  075E 3A 00 1F        ld a, ($1F00)                       ; Are there even events to process?
+010+  0761 3C              inc a
+011+  0762 C8              ret z
+012+  0763                 
+013+  0763                 PollPCM
+013+  0763 3A 00 40    >    ld a, ($4000)
+013+  0766 0F          >    rrca
+013+  0767 CF          >    rst $08
+014+  0768                 
+015+  0768 21 78 07        ld hl, ProcessDirectEnd             ; Override $FF event
+016+  076B 22 48 04        ld (ProcessBGMEventFF+1), hl
+017+  076E                 
+018+  076E 21 00 1F        ld hl, $1F00                        ; Where event data is stored
+019+  0771 3A 98 12        ld a, (RAM_LastBank)                ; To avoid wasting time with bank
+020+  0774 4F              ld c, a                               ; switching
+021+  0775                 
+022+  0775 C3 07 04        jp ProcessBGMRun                    ; Start processing the event
+023+  0778             
+024+  0778             ProcessDirectEnd:
+025+  0778 21 CF 04        ld hl, StopBGMEvent                 ; Restore $FF event
+026+  077B 22 48 04        ld (ProcessBGMEventFF+1), hl
+027+  077E 3E FF           ld a, $FF                           ; Reset the stream
+028+  0780 32 00 1F        ld ($1F00), a
+029+  0783                 
+030+  0783 C9              ret                                 ; Return to the main loop
+010   0784                 include "player/fm.z80"
+001+  0784             ;****************************************************************************
+002+  0784             ; NoteOnFM* [events $00~$07]
+003+  0784             ; Does a "note on" for a FM channel
+004+  0784             ;----------------------------------------------------------------------------
+005+  0784             ; input a .... FM channel (bottom 3 bits)
+006+  0784             ; input c .... current bank
+007+  0784             ; input hl ... current address
+008+  0784             ;----------------------------------------------------------------------------
+009+  0784             ; breaks: af, b
+010+  0784             ;****************************************************************************
+011+  0784             
+012+  0784             NoteOnFMSFX:
+013+  0784 CD A6 07        call NoteOnFM               ; We're just a wrapper
+014+  0787 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+015+  078A             
+016+  078A             NoteOnFMBGM:
+017+  078A 47              ld b, a
+018+  078B                 PollPCM
+018+  078B 3A 00 40    >    ld a, ($4000)
+018+  078E 0F          >    rrca
+018+  078F CF          >    rst $08
+019+  0790             
+020+  0790 E5              push hl
+021+  0791 78              ld a, b
+022+  0792 E6 07           and $07                     ; Check if channel is free
+023+  0794 21 88 12        ld hl, RAM_Locked
+024+  0797 85              add l
+025+  0798 6F              ld l, a
+026+  0799 7E              ld a, (hl)
+027+  079A E1              pop hl
+028+  079B B7              or a
+029+  079C C2 BC 04        jp nz, ProcessBGMSkip1      ; Don't play if locked
+030+  079F             
+031+  079F 78              ld a, b
+032+  07A0 CD A6 07        call NoteOnFM               ; We're just a wrapper
+033+  07A3 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+034+  07A6             
+035+  07A6             NoteOnFM:
+036+  07A6 E6 07           and $07                     ; Get channel ID
+037+  07A8 DD 36 00 28     ld (ix+0), $28              ; Note off
+038+  07AC DD 77 01        ld (ix+1), a
+039+  07AF             
+040+  07AF 47              ld b, a
+041+  07B0 08              ex af, af'
+042+  07B1                 PollPCM
+042+  07B1 3A 00 40    >    ld a, ($4000)
+042+  07B4 0F          >    rrca
+042+  07B5 CF          >    rst $08
+043+  07B6             
+044+  07B6 78              ld a, b                     ; Determine which port to write
+045+  07B7 E6 04           and $04
+046+  07B9 0F              rrca
+047+  07BA FD 6F           ld iyl, a
+048+  07BC             
+049+  07BC                 PollPCM
+049+  07BC 3A 00 40    >    ld a, ($4000)
+049+  07BF 0F          >    rrca
+049+  07C0 CF          >    rst $08
+050+  07C1 CD EA 02        call GetParam               ; Get note
+051+  07C4                 PollPCM
+051+  07C4 3A 00 40    >    ld a, ($4000)
+051+  07C7 0F          >    rrca
+051+  07C8 CF          >    rst $08
+052+  07C9             
+053+  07C9 08              ex af, af'
+054+  07CA D5              push de
+055+  07CB E5              push hl
+056+  07CC             
+057+  07CC 57              ld d, a
+058+  07CD E6 03           and $03                     ; Index of first frequency register
+059+  07CF C6 A4           add $A4
+060+  07D1 5F              ld e, a
+061+  07D2             
+062+  07D2                 PollPCM
+062+  07D2 3A 00 40    >    ld a, ($4000)
+062+  07D5 0F          >    rrca
+062+  07D6 CF          >    rst $08
+063+  07D7             
+064+  07D7 26 11           ld h, FMFreqTable>>8        ; Get address of note
+065+  07D9 78              ld a, b
+066+  07DA E6 1F           and $1F
+067+  07DC C6 90           add FMFreqTable&$FF
+068+  07DE 6F              ld l, a
+069+  07DF             
+070+  07DF                 PollPCM
+070+  07DF 3A 00 40    >    ld a, ($4000)
+070+  07E2 0F          >    rrca
+070+  07E3 CF          >    rst $08
+071+  07E4             
+072+  07E4 78              ld a, b                     ; Set new frequency
+073+  07E5 E6 E0           and $E0
+074+  07E7 0F              rrca
+075+  07E8 0F              rrca
+076+  07E9 47              ld b, a
+077+  07EA 7E              ld a, (hl)
+078+  07EB B0              or b
+079+  07EC FD 73 00        ld (iy+0), e
+080+  07EF FD 77 01        ld (iy+1), a
+081+  07F2             
+082+  07F2                 PollPCM
+082+  07F2 3A 00 40    >    ld a, ($4000)
+082+  07F5 0F          >    rrca
+082+  07F6 CF          >    rst $08
+083+  07F7             
+084+  07F7 7B              ld a, e
+085+  07F8 D6 04           sub 4
+086+  07FA 5F              ld e, a
+087+  07FB 2D              dec l
+088+  07FC 7E              ld a, (hl)
+089+  07FD FD 73 00        ld (iy+0), e
+090+  0800 FD 77 01        ld (iy+1), a
+091+  0803             
+092+  0803                 PollPCM
+092+  0803 3A 00 40    >    ld a, ($4000)
+092+  0806 0F          >    rrca
+092+  0807 CF          >    rst $08
+093+  0808             
+094+  0808 7A              ld a, d                     ; Note on!
+095+  0809 F6 F0           or $F0
+096+  080B DD 36 00 28     ld (ix+0), $28
+097+  080F DD 77 01        ld (ix+1), a
+098+  0812             
+099+  0812 E1              pop hl
+100+  0813 D1              pop de
+101+  0814 C9              ret                         ; End of subroutine
+102+  0815             
+103+  0815             ;****************************************************************************
+104+  0815             ; NoteOffFM [events $10~$17]
+105+  0815             ; Does a "note off" for a FM channel
+106+  0815             ;----------------------------------------------------------------------------
+107+  0815             ; input a .... FM channel (bottom 3 bits)
+108+  0815             ; input c .... current bank
+109+  0815             ; input hl ... current address
+110+  0815             ;----------------------------------------------------------------------------
+111+  0815             ; breaks: af, b
+112+  0815             ;****************************************************************************
+113+  0815             
+114+  0815             NoteOffFMSFX:
+115+  0815 CD 37 08        call NoteOffFM              ; We're just a wrapper
+116+  0818 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+117+  081B             
+118+  081B             NoteOffFMBGM:
+119+  081B 47              ld b, a
+120+  081C                 PollPCM
+120+  081C 3A 00 40    >    ld a, ($4000)
+120+  081F 0F          >    rrca
+120+  0820 CF          >    rst $08
+121+  0821 78              ld a, b
+122+  0822             
+123+  0822 E5              push hl
+124+  0823 E6 07           and $07                     ; Check if channel is free
+125+  0825 21 88 12        ld hl, RAM_Locked
+126+  0828 85              add l
+127+  0829 6F              ld l, a
+128+  082A 7E              ld a, (hl)
+129+  082B E1              pop hl
+130+  082C B7              or a
+131+  082D C2 07 04        jp nz, ProcessBGMSkip       ; Don't stop if locked
+132+  0830             
+133+  0830 78              ld a, b
+134+  0831 CD 37 08        call NoteOffFM              ; We're just a wrapper
+135+  0834 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+136+  0837             
+137+  0837             NoteOffFM:
+138+  0837 E6 07           and $07                     ; Get channel ID
+139+  0839 DD 36 00 28     ld (ix+0), $28              ; Note off
+140+  083D DD 77 01        ld (ix+1), a
+141+  0840 C9              ret                         ; End of subroutine
+142+  0841             
+143+  0841             ;****************************************************************************
+144+  0841             ; SetFMNote* [events $30~$37]
+145+  0841             ; Sets the note of a FM channel without "note on"
+146+  0841             ;----------------------------------------------------------------------------
+147+  0841             ; input a .... FM channel (bottom 3 bits)
+148+  0841             ; input c .... current bank
+149+  0841             ; input hl ... current address
+150+  0841             ;----------------------------------------------------------------------------
+151+  0841             ; breaks: af, b
+152+  0841             ;****************************************************************************
+153+  0841             
+154+  0841             SetNoteFMSFX:
+155+  0841 CD 63 08        call SetNoteFM              ; We're just a wrapper
+156+  0844 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+157+  0847             
+158+  0847             SetNoteFMBGM:
+159+  0847 47              ld b, a
+160+  0848                 PollPCM
+160+  0848 3A 00 40    >    ld a, ($4000)
+160+  084B 0F          >    rrca
+160+  084C CF          >    rst $08
+161+  084D 78              ld a, b
+162+  084E             
+163+  084E E5              push hl
+164+  084F E6 07           and $07                     ; Check if channel is free
+165+  0851 21 88 12        ld hl, RAM_Locked
+166+  0854 85              add l
+167+  0855 6F              ld l, a
+168+  0856 7E              ld a, (hl)
+169+  0857 E1              pop hl
+170+  0858 B7              or a
+171+  0859 C2 AC 04        jp nz, ProcessBGMSkip2      ; Don't change if locked
+172+  085C             
+173+  085C 78              ld a, b
+174+  085D CD 63 08        call SetNoteFM              ; We're just a wrapper
+175+  0860 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+176+  0863             
+177+  0863             SetNoteFM:
+178+  0863 F5              push af
+179+  0864 47              ld b, a
+180+  0865                 PollPCM
+180+  0865 3A 00 40    >    ld a, ($4000)
+180+  0868 0F          >    rrca
+180+  0869 CF          >    rst $08
+181+  086A             
+182+  086A 78              ld a, b                     ; Determine which port to write
+183+  086B E6 04           and $04
+184+  086D 0F              rrca
+185+  086E FD 6F           ld iyl, a
+186+  0870             
+187+  0870                 PollPCM
+187+  0870 3A 00 40    >    ld a, ($4000)
+187+  0873 0F          >    rrca
+187+  0874 CF          >    rst $08
+188+  0875 CD EA 02        call GetParam               ; Get high byte
+189+  0878                 PollPCM
+189+  0878 3A 00 40    >    ld a, ($4000)
+189+  087B 0F          >    rrca
+189+  087C CF          >    rst $08
+190+  087D             
+191+  087D F1              pop af
+192+  087E D5              push de
+193+  087F             
+194+  087F E6 07           and $07
+195+  0881 57              ld d, a
+196+  0882 E6 03           and $03                     ; Index of first frequency register
+197+  0884 C6 A4           add $A4
+198+  0886 5F              ld e, a
+199+  0887             
+200+  0887                 PollPCM
+200+  0887 3A 00 40    >    ld a, ($4000)
+200+  088A 0F          >    rrca
+200+  088B CF          >    rst $08
+201+  088C             
+202+  088C FD 73 00        ld (iy+0), e                ; Load high byte
+203+  088F FD 70 01        ld (iy+1), b
+204+  0892             
+205+  0892                 PollPCM                     ; Load low byte
+205+  0892 3A 00 40    >    ld a, ($4000)
+205+  0895 0F          >    rrca
+205+  0896 CF          >    rst $08
+206+  0897 CD EA 02        call GetParam
+207+  089A                 PollPCM
+207+  089A 3A 00 40    >    ld a, ($4000)
+207+  089D 0F          >    rrca
+207+  089E CF          >    rst $08
+208+  089F             
+209+  089F 7B              ld a, e
+210+  08A0 D6 04           sub 4
+211+  08A2 5F              ld e, a
+212+  08A3             
+213+  08A3 FD 73 00        ld (iy+0), e
+214+  08A6 FD 70 01        ld (iy+1), b
+215+  08A9             
+216+  08A9                 PollPCM
+216+  08A9 3A 00 40    >    ld a, ($4000)
+216+  08AC 0F          >    rrca
+216+  08AD CF          >    rst $08
+217+  08AE D1              pop de
+218+  08AF C9              ret                         ; End of subroutine
+219+  08B0             
+220+  08B0             ;****************************************************************************
+221+  08B0             ; LoadFM* [events $40~$47]
+222+  08B0             ; Loads a FM instrument
+223+  08B0             ;----------------------------------------------------------------------------
+224+  08B0             ; input a .... FM channel (bottom 3 bits)
+225+  08B0             ; input c .... current bank
+226+  08B0             ; input hl ... current address
+227+  08B0             ;----------------------------------------------------------------------------
+228+  08B0             ; breaks: af, b
+229+  08B0             ;****************************************************************************
+230+  08B0             
+231+  08B0             LoadFMSFX:
+232+  08B0 CD 0C 09        call LoadFMEvent            ; We're just a wrapper
+233+  08B3 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+234+  08B6             
+235+  08B6             LoadFMBGM:
+236+  08B6 E6 07           and $07                     ; Get channel ID
+237+  08B8 47              ld b, a
+238+  08B9                 PollPCM
+238+  08B9 3A 00 40    >    ld a, ($4000)
+238+  08BC 0F          >    rrca
+238+  08BD CF          >    rst $08
+239+  08BE             
+240+  08BE D5              push de
+241+  08BF C5              push bc
+242+  08C0 78              ld a, b
+243+  08C1 11 40 12        ld de, RAM_BGMFMInstr       ; Store instrument ID
+244+  08C4 83              add e
+245+  08C5 5F              ld e, a
+246+  08C6                 PollPCM
+246+  08C6 3A 00 40    >    ld a, ($4000)
+246+  08C9 0F          >    rrca
+246+  08CA CF          >    rst $08
+247+  08CB CD EA 02        call GetParam
+248+  08CE                 PollPCM
+248+  08CE 3A 00 40    >    ld a, ($4000)
+248+  08D1 0F          >    rrca
+248+  08D2 CF          >    rst $08
+249+  08D3 78              ld a, b
+250+  08D4 12              ld (de), a
+251+  08D5                 
+252+  08D5 7B              ld a, e                     ; Reset volume
+253+  08D6 C6 08           add 8
+254+  08D8 5F              ld e, a
+255+  08D9 AF              xor a
+256+  08DA 12              ld (de), a
+257+  08DB                 
+258+  08DB 59              ld e, c
+259+  08DC C1              pop bc
+260+  08DD 4B              ld c, e
+261+  08DE D1              pop de
+262+  08DF             
+263+  08DF                 PollPCM
+263+  08DF 3A 00 40    >    ld a, ($4000)
+263+  08E2 0F          >    rrca
+263+  08E3 CF          >    rst $08
+264+  08E4             
+265+  08E4 E5              push hl                     ; Check if channel is free
+266+  08E5 78              ld a, b
+267+  08E6 26 12           ld h, RAM_Locked>>8
+268+  08E8 C6 88           add RAM_Locked&$FF
+269+  08EA 6F              ld l, a
+270+  08EB 7E              ld a, (hl)
+271+  08EC E1              pop hl
+272+  08ED B7              or a
+273+  08EE C2 07 04        jp nz, ProcessBGMSkip       ; Don't load if locked
+274+  08F1             
+275+  08F1                 PollPCM
+275+  08F1 3A 00 40    >    ld a, ($4000)
+275+  08F4 0F          >    rrca
+275+  08F5 CF          >    rst $08
+276+  08F6             
+277+  08F6 78              ld a, b                     ; Get back instrument ID
+278+  08F7 E5              push hl
+279+  08F8 21 40 12        ld hl, RAM_BGMFMInstr
+280+  08FB 85              add l
+281+  08FC 6F              ld l, a
+282+  08FD 46              ld b, (hl)
+283+  08FE E1              pop hl
+284+  08FF             
+285+  08FF 08              ex af, af'
+286+  0900                 PollPCM
+286+  0900 3A 00 40    >    ld a, ($4000)
+286+  0903 0F          >    rrca
+286+  0904 CF          >    rst $08
+287+  0905 08              ex af, af'
+288+  0906             
+289+  0906 CD 1D 09        call LoadFMDirect           ; We're just a wrapper
+290+  0909 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+291+  090C             
+292+  090C             LoadFMEvent:
+293+  090C E6 07           and $07                     ; Get channel ID
+294+  090E             
+295+  090E 08              ex af, af'
+296+  090F                 PollPCM
+296+  090F 3A 00 40    >    ld a, ($4000)
+296+  0912 0F          >    rrca
+296+  0913 CF          >    rst $08
+297+  0914 CD EA 02        call GetParam               ; Get instrument ID
+298+  0917                 PollPCM
+298+  0917 3A 00 40    >    ld a, ($4000)
+298+  091A 0F          >    rrca
+298+  091B CF          >    rst $08
+299+  091C 08              ex af, af'
+300+  091D             LoadFMDirect:
+301+  091D             
+302+  091D F5              push af
+303+  091E E6 04           and $04                     ; Determine which port to write
+304+  0920 0F              rrca
+305+  0921 FD 6F           ld iyl, a
+306+  0923                 PollPCM
+306+  0923 3A 00 40    >    ld a, ($4000)
+306+  0926 0F          >    rrca
+306+  0927 CF          >    rst $08
+307+  0928 F1              pop af
+308+  0929             
+309+  0929 C5              push bc
+310+  092A D5              push de
+311+  092B E5              push hl
+312+  092C             
+313+  092C 26 1C           ld h, RAM_PointerList>>8    ; Get instrument address
+314+  092E 68              ld l, b
+315+  092F 56              ld d, (hl)
+316+  0930 24              inc h
+317+  0931 5E              ld e, (hl)
+318+  0932 24              inc h
+319+  0933 4E              ld c, (hl)
+320+  0934 EB              ex de, hl
+321+  0935             
+322+  0935 F5              push af
+323+  0936                 PollPCM
+323+  0936 3A 00 40    >    ld a, ($4000)
+323+  0939 0F          >    rrca
+323+  093A CF          >    rst $08
+324+  093B                 
+325+  093B 06 07           ld b, 28/4                  ; Load FM instrument into our scratch buffer,
+326+  093D 11 B0 12        ld de, RAM_Scratch            ; so we don't conflict with PCM bank
+327+  0940             .getinstr:                        ; switch (which would slow down A LOT)
+328+  0940 78              ld a, b
+329+  0941 08              ex af, af'
+330+  0942 CD EA 02        call GetParam
+331+  0945 EB              ex de, hl
+332+  0946 70              ld (hl), b
+333+  0947 EB              ex de, hl
+334+  0948 1C              inc e
+335+  0949 CD EA 02        call GetParam
+336+  094C EB              ex de, hl
+337+  094D 70              ld (hl), b
+338+  094E EB              ex de, hl
+339+  094F 1C              inc e
+340+  0950 CD EA 02        call GetParam
+341+  0953 EB              ex de, hl
+342+  0954 70              ld (hl), b
+343+  0955 EB              ex de, hl
+344+  0956 1C              inc e
+345+  0957 CD EA 02        call GetParam
+346+  095A EB              ex de, hl
+347+  095B 70              ld (hl), b
+348+  095C EB              ex de, hl
+349+  095D 1C              inc e
+350+  095E 08              ex af, af'
+351+  095F 47              ld b, a
+352+  0960 10 DE           djnz .getinstr
+353+  0962 CD EA 02        call GetParam
+354+  0965 EB              ex de, hl
+355+  0966 70              ld (hl), b
+356+  0967 EB              ex de, hl
+357+  0968             
+358+  0968                 PollPCM
+358+  0968 3A 00 40    >    ld a, ($4000)
+358+  096B 0F          >    rrca
+358+  096C CF          >    rst $08
+359+  096D                 
+360+  096D F1              pop af                      ; Kill ADSR
+361+  096E 47              ld b, a
+362+  096F CD D8 0B        call KillFM
+363+  0972 78              ld a, b
+364+  0973             
+365+  0973 11 60 12        ld de, RAM_FMData           ; Get address of FM data
+366+  0976 E6 07           and $07
+367+  0978 83              add e
+368+  0979 5F              ld e, a
+369+  097A             
+370+  097A F5              push af
+371+  097B E6 03           and $03                     ; Register index for operator
+372+  097D C6 B0           add $B0
+373+  097F                 
+374+  097F 21 B0 12        ld hl, RAM_Scratch          ; Get address of buffer with the instrument
+375+  0982                                               ; data
+376+  0982 08              ex af, af'
+377+  0983                 PollPCM                     ; Write operator
+377+  0983 3A 00 40    >    ld a, ($4000)
+377+  0986 0F          >    rrca
+377+  0987 CF          >    rst $08
+378+  0988 08              ex af, af'
+379+  0989 FD 77 00        ld (iy+0), a
+380+  098C 46              ld b, (hl)
+381+  098D 2C              inc l
+382+  098E FD 70 01        ld (iy+1), b
+383+  0991             
+384+  0991 08              ex af, af'                  ; Store $B0 register in FM data buffer
+385+  0992 78              ld a, b
+386+  0993 12              ld (de), a
+387+  0994 7B              ld a, e
+388+  0995 C6 08           add 8
+389+  0997 5F              ld e, a
+390+  0998                 PollPCM
+390+  0998 3A 00 40    >    ld a, ($4000)
+390+  099B 0F          >    rrca
+390+  099C CF          >    rst $08
+391+  099D 08              ex af, af'
+392+  099E             
+393+  099E D6 80           sub $B0-$30
+394+  09A0                 
+395+  09A0 06 1C           ld b, 7*4                   ; Load operator registers into the YM2612
+396+  09A2             .loadfmloop:
+397+  09A2 FD 77 00        ld (iy+0), a
+398+  09A5 4E              ld c, (hl)
+399+  09A6 FD 71 01        ld (iy+1), c
+400+  09A9 C6 04           add 4
+401+  09AB 2C              inc l
+402+  09AC 10 F4           djnz .loadfmloop
+403+  09AE                 
+404+  09AE                 PollPCM
+404+  09AE 3A 00 40    >    ld a, ($4000)
+404+  09B1 0F          >    rrca
+404+  09B2 CF          >    rst $08
+405+  09B3                 
+406+  09B3 7D              ld a, l                     ; Store operator TLs (needed to set the
+407+  09B4 D6 18           sub 24                        ; volume properly when it changes)
+408+  09B6 6F              ld l, a
+409+  09B7 06 04           ld b, 4
+410+  09B9             .loadfmsavetl:
+411+  09B9 7E              ld a, (hl)
+412+  09BA 12              ld (de), a
+413+  09BB 7B              ld a, e
+414+  09BC C6 08           add 8
+415+  09BE 5F              ld e, a
+416+  09BF 2C              inc l 
+417+  09C0 10 F7           djnz .loadfmsavetl
+418+  09C2                 
+419+  09C2                 PollPCM
+419+  09C2 3A 00 40    >    ld a, ($4000)
+419+  09C5 0F          >    rrca
+419+  09C6 CF          >    rst $08
+420+  09C7             
+421+  09C7 F1              pop af
+422+  09C8 E1              pop hl
+423+  09C9 D1              pop de
+424+  09CA C1              pop bc
+425+  09CB                 
+426+  09CB 06 00           ld b, 0
+427+  09CD C3 3C 0A        jp SetFMVolLoad
+428+  09D0             
+429+  09D0             ;****************************************************************************
+430+  09D0             ; SetFMVol*
+431+  09D0             ; Sets the volume of a FM channel
+432+  09D0             ;****************************************************************************
+433+  09D0             
+434+  09D0             SetFMVolSFX:
+435+  09D0 F5              push af
+436+  09D1                 PollPCM
+436+  09D1 3A 00 40    >    ld a, ($4000)
+436+  09D4 0F          >    rrca
+436+  09D5 CF          >    rst $08
+437+  09D6 CD EA 02        call GetParam               ; Get new volume
+438+  09D9                 PollPCM
+438+  09D9 3A 00 40    >    ld a, ($4000)
+438+  09DC 0F          >    rrca
+438+  09DD CF          >    rst $08
+439+  09DE F1              pop af
+440+  09DF                 
+441+  09DF CD 3C 0A        call SetFMVolLoad           ; We're just a wrapper
+442+  09E2 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+443+  09E5             
+444+  09E5             SetFMVolBGM:
+445+  09E5 E6 07           and $07
+446+  09E7 47              ld b, a
+447+  09E8             
+448+  09E8                 PollPCM
+448+  09E8 3A 00 40    >    ld a, ($4000)
+448+  09EB 0F          >    rrca
+448+  09EC CF          >    rst $08
+449+  09ED             
+450+  09ED D5              push de
+451+  09EE C5              push bc
+452+  09EF 78              ld a, b
+453+  09F0 16 12           ld d, RAM_BGMFMVol>>8        ; Store BGM volume
+454+  09F2 C6 48           add RAM_BGMFMVol&$FF
+455+  09F4 5F              ld e, a
+456+  09F5                 PollPCM
+456+  09F5 3A 00 40    >    ld a, ($4000)
+456+  09F8 0F          >    rrca
+456+  09F9 CF          >    rst $08
+457+  09FA CD EA 02        call GetParam
+458+  09FD                 PollPCM
+458+  09FD 3A 00 40    >    ld a, ($4000)
+458+  0A00 0F          >    rrca
+458+  0A01 CF          >    rst $08
+459+  0A02 EB              ex de, hl
+460+  0A03 70              ld (hl), b
+461+  0A04 EB              ex de, hl
+462+  0A05 59              ld e, c
+463+  0A06 C1              pop bc
+464+  0A07 4B              ld c, e
+465+  0A08 D1              pop de
+466+  0A09             
+467+  0A09                 PollPCM
+467+  0A09 3A 00 40    >    ld a, ($4000)
+467+  0A0C 0F          >    rrca
+467+  0A0D CF          >    rst $08
+468+  0A0E             
+469+  0A0E E5              push hl
+470+  0A0F 78              ld a, b                     ; Check if channel is free
+471+  0A10 21 88 12        ld hl, RAM_Locked
+472+  0A13 85              add l
+473+  0A14 6F              ld l, a
+474+  0A15 7E              ld a, (hl)
+475+  0A16 E1              pop hl
+476+  0A17 B7              or a
+477+  0A18 C2 07 04        jp nz, ProcessBGMSkip       ; Don't change if locked
+478+  0A1B             
+479+  0A1B                 PollPCM
+479+  0A1B 3A 00 40    >    ld a, ($4000)
+479+  0A1E 0F          >    rrca
+479+  0A1F CF          >    rst $08
+480+  0A20             
+481+  0A20 78              ld a, b
+482+  0A21 E5              push hl
+483+  0A22 21 48 12        ld hl, RAM_BGMFMVol
+484+  0A25 85              add l
+485+  0A26 6F              ld l, a
+486+  0A27 46              ld b, (hl)
+487+  0A28 E1              pop hl
+488+  0A29             
+489+  0A29 F5              push af
+490+  0A2A                 PollPCM
+490+  0A2A 3A 00 40    >    ld a, ($4000)
+490+  0A2D 0F          >    rrca
+490+  0A2E CF          >    rst $08
+491+  0A2F F1              pop af
+492+  0A30             
+493+  0A30 CD 3C 0A        call SetFMVolLoad           ; We're just a wrapper
+494+  0A33 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+495+  0A36             
+496+  0A36             ;----------------------------------------------------------------------------
+497+  0A36             ; input a = channel ID
+498+  0A36             ; input b = new volume level
+499+  0A36             ;----------------------------------------------------------------------------
+500+  0A36             
+501+  0A36             SetFMVolTempLoad:
+502+  0A36 C5              push bc
+503+  0A37 D5              push de
+504+  0A38 E5              push hl
+505+  0A39 C3 49 0A        jp SetFMVolDoIt
+506+  0A3C             
+507+  0A3C             ;----------------------------------------------------------------------------
+508+  0A3C             ; input a = channel ID (bottom 3 bits)
+509+  0A3C             ; input b = new volume level
+510+  0A3C             ;----------------------------------------------------------------------------
+511+  0A3C             
+512+  0A3C             SetFMVolLoad:
+513+  0A3C C5              push bc
+514+  0A3D D5              push de
+515+  0A3E E5              push hl
+516+  0A3F                 
+517+  0A3F E6 07           and $07                     ; Get channel ID
+518+  0A41                 
+519+  0A41 F5              push af                     ; Store new FM volume
+520+  0A42 26 12           ld h, RAM_FMVol>>8
+521+  0A44 C6 58           add RAM_FMVol&$FF
+522+  0A46 6F              ld l, a
+523+  0A47 70              ld (hl), b
+524+  0A48 F1              pop af
+525+  0A49                 
+526+  0A49             SetFMVolDoIt:
+527+  0A49 F5              push af
+528+  0A4A 26 12           ld h, RAM_FMData>>8         ; Get address of FM data
+529+  0A4C C6 60           add RAM_FMData&$FF
+530+  0A4E 6F              ld l, a
+531+  0A4F                 
+532+  0A4F 08              ex af, af'
+533+  0A50                 PollPCM
+533+  0A50 3A 00 40    >    ld a, ($4000)
+533+  0A53 0F          >    rrca
+533+  0A54 CF          >    rst $08
+534+  0A55 08              ex af, af'
+535+  0A56                 
+536+  0A56 E6 07           and $07                     ; Get global volume
+537+  0A58 F6 E0           or $E0
+538+  0A5A 16 1F           ld d, $1F
+539+  0A5C 5F              ld e, a
+540+  0A5D 08              ex af, af'
+541+  0A5E 1A              ld a, (de)
+542+  0A5F 57              ld d, a
+543+  0A60                 
+544+  0A60                 PollPCM
+544+  0A60 3A 00 40    >    ld a, ($4000)
+544+  0A63 0F          >    rrca
+544+  0A64 CF          >    rst $08
+545+  0A65 08              ex af, af'
+546+  0A66             
+547+  0A66 E6 04           and $04                     ; Determine which port to write
+548+  0A68 0F              rrca
+549+  0A69 FD 6F           ld iyl, a
+550+  0A6B                 PollPCM
+550+  0A6B 3A 00 40    >    ld a, ($4000)
+550+  0A6E 0F          >    rrca
+550+  0A6F CF          >    rst $08
+551+  0A70 F1              pop af
+552+  0A71             
+553+  0A71 E6 03           and $03                     ; Index of first volume register
+554+  0A73 C6 40           add $40
+555+  0A75 4F              ld c, a
+556+  0A76             
+557+  0A76 7E              ld a, (hl)                  ; Get algorithm
+558+  0A77 E6 07           and $07
+559+  0A79 5F              ld e, a
+560+  0A7A             
+561+  0A7A                 PollPCM
+561+  0A7A 3A 00 40    >    ld a, ($4000)
+561+  0A7D 0F          >    rrca
+561+  0A7E CF          >    rst $08
+562+  0A7F             
+563+  0A7F 7D              ld a, l
+564+  0A80 C6 08           add 8
+565+  0A82 6F              ld l, a
+566+  0A83 7B              ld a, e                     ; Process operator #1
+567+  0A84 FE 07           cp $07
+568+  0A86 38 11           jr c, .noop1
+569+  0A88 FD 71 00        ld (iy+0), c
+570+  0A8B 7E              ld a, (hl)
+571+  0A8C 82              add d
+572+  0A8D FA 94 0A        jp m, .tooquiet1
+573+  0A90 80              add b
+574+  0A91 F2 96 0A        jp p, .notooquiet1
+575+  0A94             .tooquiet1:
+576+  0A94 3E 7F           ld a, $7F
+577+  0A96             .notooquiet1:
+578+  0A96 FD 77 01        ld (iy+1), a
+579+  0A99             .noop1:
+580+  0A99 79              ld a, c
+581+  0A9A C6 04           add 4
+582+  0A9C 4F              ld c, a
+583+  0A9D             
+584+  0A9D                 PollPCM
+584+  0A9D 3A 00 40    >    ld a, ($4000)
+584+  0AA0 0F          >    rrca
+584+  0AA1 CF          >    rst $08
+585+  0AA2             
+586+  0AA2 7D              ld a, l
+587+  0AA3 C6 08           add 8
+588+  0AA5 6F              ld l, a
+589+  0AA6 7B              ld a, e                     ; Process operator #2
+590+  0AA7 FE 05           cp $05
+591+  0AA9 38 11           jr c, .noop2
+592+  0AAB FD 71 00        ld (iy+0), c
+593+  0AAE 7E              ld a, (hl)
+594+  0AAF 82              add d
+595+  0AB0 FA B7 0A        jp m, .tooquiet2
+596+  0AB3 80              add b
+597+  0AB4 F2 B9 0A        jp p, .notooquiet2
+598+  0AB7             .tooquiet2:
+599+  0AB7 3E 7F           ld a, $7F
+600+  0AB9             .notooquiet2:
+601+  0AB9 FD 77 01        ld (iy+1), a
+602+  0ABC             .noop2:
+603+  0ABC 79              ld a, c
+604+  0ABD C6 04           add 4
+605+  0ABF 4F              ld c, a
+606+  0AC0             
+607+  0AC0                 PollPCM
+607+  0AC0 3A 00 40    >    ld a, ($4000)
+607+  0AC3 0F          >    rrca
+607+  0AC4 CF          >    rst $08
+608+  0AC5             
+609+  0AC5 7D              ld a, l
+610+  0AC6 C6 08           add 8
+611+  0AC8 6F              ld l, a
+612+  0AC9 7B              ld a, e                     ; Process operator #3
+613+  0ACA FE 04           cp $04
+614+  0ACC 38 11           jr c, .noop3
+615+  0ACE FD 71 00        ld (iy+0), c
+616+  0AD1 7E              ld a, (hl)
+617+  0AD2 82              add d
+618+  0AD3 FA DA 0A        jp m, .tooquiet3
+619+  0AD6 80              add b
+620+  0AD7 F2 DC 0A        jp p, .notooquiet3
+621+  0ADA             .tooquiet3:
+622+  0ADA 3E 7F           ld a, $7F
+623+  0ADC             .notooquiet3:
+624+  0ADC FD 77 01        ld (iy+1), a
+625+  0ADF             .noop3:
+626+  0ADF 79              ld a, c
+627+  0AE0 C6 04           add 4
+628+  0AE2 4F              ld c, a
+629+  0AE3             
+630+  0AE3                 PollPCM
+630+  0AE3 3A 00 40    >    ld a, ($4000)
+630+  0AE6 0F          >    rrca
+630+  0AE7 CF          >    rst $08
+631+  0AE8             
+632+  0AE8 7D              ld a, l
+633+  0AE9 C6 08           add 8
+634+  0AEB 6F              ld l, a
+635+  0AEC FD 71 00        ld (iy+0), c
+636+  0AEF 7E              ld a, (hl)                  ; Process operator #4
+637+  0AF0 82              add d
+638+  0AF1 FA F8 0A        jp m, .tooquiet4
+639+  0AF4 80              add b
+640+  0AF5 F2 FA 0A        jp p, .notooquiet4
+641+  0AF8             .tooquiet4:
+642+  0AF8 3E 7F           ld a, $7F
+643+  0AFA             .notooquiet4:
+644+  0AFA FD 77 01        ld (iy+1), a
+645+  0AFD             
+646+  0AFD                 PollPCM
+646+  0AFD 3A 00 40    >    ld a, ($4000)
+646+  0B00 0F          >    rrca
+646+  0B01 CF          >    rst $08
+647+  0B02             
+648+  0B02 E1              pop hl
+649+  0B03 D1              pop de
+650+  0B04 C1              pop bc
+651+  0B05 C9              ret                         ; End of subroutine
+652+  0B06             
+653+  0B06             ;****************************************************************************
+654+  0B06             ; SetFMParam* [events $F0-$F7]
+655+  0B06             ; Sets the different parameters of a FM channel
+656+  0B06             ;----------------------------------------------------------------------------
+657+  0B06             ; input c .... current bank
+658+  0B06             ; input hl ... current address
+659+  0B06             ;----------------------------------------------------------------------------
+660+  0B06             ; output b .... value
+661+  0B06             ; output c .... new bank
+662+  0B06             ; output hl ... new address
+663+  0B06             ;----------------------------------------------------------------------------
+664+  0B06             ; breaks: af, b
+665+  0B06             ;****************************************************************************
+666+  0B06             
+667+  0B06             SetFMParamSFX:
+668+  0B06 47              ld b, a
+669+  0B07                 PollPCM
+669+  0B07 3A 00 40    >    ld a, ($4000)
+669+  0B0A 0F          >    rrca
+669+  0B0B CF          >    rst $08
+670+  0B0C             
+671+  0B0C 78              ld a, b                     ; Determine which port to write
+672+  0B0D E6 04           and $04
+673+  0B0F 0F              rrca
+674+  0B10 FD 6F           ld iyl, a
+675+  0B12             
+676+  0B12 78              ld a, b
+677+  0B13 08              ex af, af'
+678+  0B14                 PollPCM
+678+  0B14 3A 00 40    >    ld a, ($4000)
+678+  0B17 0F          >    rrca
+678+  0B18 CF          >    rst $08
+679+  0B19 CD EA 02        call GetParam               ; Get parameters
+680+  0B1C                 PollPCM
+680+  0B1C 3A 00 40    >    ld a, ($4000)
+680+  0B1F 0F          >    rrca
+680+  0B20 CF          >    rst $08
+681+  0B21 08              ex af, af'
+682+  0B22             
+683+  0B22 E6 03           and $03                     ; Get channel ID
+684+  0B24 C6 B4           add $B4
+685+  0B26 FD 77 00        ld (iy+0), a                ; Set new parameters
+686+  0B29 FD 70 01        ld (iy+1), b
+687+  0B2C             
+688+  0B2C C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+689+  0B2F             
+690+  0B2F             SetFMParamBGM:
+691+  0B2F 47              ld b, a
+692+  0B30                 PollPCM
+692+  0B30 3A 00 40    >    ld a, ($4000)
+692+  0B33 0F          >    rrca
+692+  0B34 CF          >    rst $08
+693+  0B35                 
+694+  0B35 78              ld a, b                     ; Determine which port to write
+695+  0B36 E6 04           and $04
+696+  0B38 0F              rrca
+697+  0B39 FD 6F           ld iyl, a
+698+  0B3B             
+699+  0B3B 78              ld a, b
+700+  0B3C 08              ex af, af'
+701+  0B3D                 PollPCM
+701+  0B3D 3A 00 40    >    ld a, ($4000)
+701+  0B40 0F          >    rrca
+701+  0B41 CF          >    rst $08
+702+  0B42 CD EA 02        call GetParam               ; Get parameters
+703+  0B45                 PollPCM
+703+  0B45 3A 00 40    >    ld a, ($4000)
+703+  0B48 0F          >    rrca
+703+  0B49 CF          >    rst $08
+704+  0B4A 08              ex af, af'
+705+  0B4B                 
+706+  0B4B E5              push hl
+707+  0B4C E6 07           and $07                     ; Store parameters
+708+  0B4E 26 12           ld h, RAM_BGMFMPan>>8
+709+  0B50 C6 50           add RAM_BGMFMPan&$FF
+710+  0B52 6F              ld l, a
+711+  0B53 70              ld (hl), b
+712+  0B54                 
+713+  0B54 08              ex af, af'
+714+  0B55                 PollPCM
+714+  0B55 3A 00 40    >    ld a, ($4000)
+714+  0B58 0F          >    rrca
+714+  0B59 CF          >    rst $08
+715+  0B5A 08              ex af, af'
+716+  0B5B             
+717+  0B5B E6 07           and $07                     ; Check if channel is free
+718+  0B5D C6 88           add RAM_Locked&$FF
+719+  0B5F 6F              ld l, a
+720+  0B60 08              ex af, af'
+721+  0B61 7E              ld a, (hl)
+722+  0B62 B7              or a
+723+  0B63 E1              pop hl
+724+  0B64 C2 07 04        jp nz, ProcessBGMRun        ; Don't modify if locked
+725+  0B67                 
+726+  0B67                 PollPCM
+726+  0B67 3A 00 40    >    ld a, ($4000)
+726+  0B6A 0F          >    rrca
+726+  0B6B CF          >    rst $08
+727+  0B6C 08              ex af, af'
+728+  0B6D             
+729+  0B6D E6 03           and $03                     ; Get channel ID
+730+  0B6F C6 B4           add $B4
+731+  0B71 FD 77 00        ld (iy+0), a                ; Set new parameters
+732+  0B74 FD 70 01        ld (iy+1), b
+733+  0B77                 
+734+  0B77 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+735+  0B7A             
+736+  0B7A             ;****************************************************************************
+737+  0B7A             ; SetFMReg* [events $F8-$F9]
+738+  0B7A             ; Changes a FM register
+739+  0B7A             ;----------------------------------------------------------------------------
+740+  0B7A             ; input a .... YM2612 register bank (0 or 1, in bit 0)
+741+  0B7A             ; input c .... current bank
+742+  0B7A             ; input hl ... current address
+743+  0B7A             ;----------------------------------------------------------------------------
+744+  0B7A             ; output b .... value
+745+  0B7A             ; output c .... new bank
+746+  0B7A             ; output hl ... new address
+747+  0B7A             ;----------------------------------------------------------------------------
+748+  0B7A             ; breaks: af, b
+749+  0B7A             ;****************************************************************************
+750+  0B7A             
+751+  0B7A             SetFMRegSFX:
+752+  0B7A CD 86 0B        call SetFMReg               ; We're just a wrapper
+753+  0B7D C3 EE 05        jp ProcessSFXRun
+754+  0B80             
+755+  0B80             SetFMRegBGM:
+756+  0B80 CD 86 0B        call SetFMReg               ; We're just a wrapper
+757+  0B83 C3 07 04        jp ProcessBGMRun
+758+  0B86             
+759+  0B86             ;----------------------------------------------------------------------------
+760+  0B86             
+761+  0B86             SetFMReg:
+762+  0B86 E6 01           and $01                     ; Get port address
+763+  0B88 87              add a
+764+  0B89 FD 6F           ld iyl, a
+765+  0B8B                 
+766+  0B8B                 PollPCM                     ; Get parameters
+766+  0B8B 3A 00 40    >    ld a, ($4000)
+766+  0B8E 0F          >    rrca
+766+  0B8F CF          >    rst $08
+767+  0B90 CD EA 02        call GetParam
+768+  0B93 C5              push bc
+769+  0B94                 PollPCM
+769+  0B94 3A 00 40    >    ld a, ($4000)
+769+  0B97 0F          >    rrca
+769+  0B98 CF          >    rst $08
+770+  0B99 CD EA 02        call GetParam
+771+  0B9C                 PollPCM
+771+  0B9C 3A 00 40    >    ld a, ($4000)
+771+  0B9F 0F          >    rrca
+771+  0BA0 CF          >    rst $08
+772+  0BA1 78              ld a, b
+773+  0BA2 C1              pop bc
+774+  0BA3                 
+775+  0BA3 FD 70 00        ld (iy+0), b                ; Write register
+776+  0BA6 FD 77 01        ld (iy+1), a
+777+  0BA9                 
+778+  0BA9 C9              ret                         ; End of subroutine
+779+  0BAA             
+780+  0BAA             ;****************************************************************************
+781+  0BAA             ; LockChannelFM [events $E0-$E7]
+782+  0BAA             ; Locks a FM channel
+783+  0BAA             ;----------------------------------------------------------------------------
+784+  0BAA             ; input a ... FM channel (0..7, in bottom 3 bits)
+785+  0BAA             ; input c .... current bank
+786+  0BAA             ; input hl ... current address
+787+  0BAA             ;----------------------------------------------------------------------------
+788+  0BAA             ; output b .... value
+789+  0BAA             ; output c .... new bank
+790+  0BAA             ; output hl ... new address
+791+  0BAA             ;----------------------------------------------------------------------------
+792+  0BAA             ; breaks: af, iy
+793+  0BAA             ;****************************************************************************
+794+  0BAA             
+795+  0BAA             LockChannelFM:
+796+  0BAA E6 07           and $07
+797+  0BAC 47              ld b, a
+798+  0BAD                 PollPCM
+798+  0BAD 3A 00 40    >    ld a, ($4000)
+798+  0BB0 0F          >    rrca
+798+  0BB1 CF          >    rst $08
+799+  0BB2                 
+800+  0BB2 E5              push hl
+801+  0BB3 26 12           ld h, RAM_Locked>>8         ; Get address of channel to lock
+802+  0BB5 78              ld a, b
+803+  0BB6 C6 88           add RAM_Locked&$FF
+804+  0BB8 6F              ld l, a
+805+  0BB9 36 01           ld (hl), $01                ; Lock channel
+806+  0BBB E1              pop hl
+807+  0BBC                 
+808+  0BBC                 PollPCM
+808+  0BBC 3A 00 40    >    ld a, ($4000)
+808+  0BBF 0F          >    rrca
+808+  0BC0 CF          >    rst $08
+809+  0BC1                 
+810+  0BC1 78              ld a, b                     ; Determine which port to write
+811+  0BC2 E6 04           and $04
+812+  0BC4 0F              rrca
+813+  0BC5 FD 6F           ld iyl, a
+814+  0BC7                 
+815+  0BC7 78              ld a, b                     ; Reset FM parameters
+816+  0BC8 E6 03           and $03
+817+  0BCA 87              add a
+818+  0BCB 87              add a
+819+  0BCC C6 B4           add $B4
+820+  0BCE FD 77 00        ld (iy+0), a
+821+  0BD1 FD 36 01 C0     ld (iy+1), $C0
+822+  0BD5                 
+823+  0BD5 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+824+  0BD8             
+825+  0BD8             ;****************************************************************************
+826+  0BD8             ; KillFM
+827+  0BD8             ; Kills a FM channel
+828+  0BD8             ;----------------------------------------------------------------------------
+829+  0BD8             ; input a ... FM channel (0..7, in bottom 3 bits)
+830+  0BD8             ;----------------------------------------------------------------------------
+831+  0BD8             ; breaks: af, c, iy
+832+  0BD8             ;****************************************************************************
+833+  0BD8             
+834+  0BD8             KillFM:
+835+  0BD8 E6 07           and $07                     ; Get channel ID
+836+  0BDA                 
+837+  0BDA F5              push af
+838+  0BDB D5              push de
+839+  0BDC E5              push hl
+840+  0BDD                 
+841+  0BDD 4F              ld c, a                     ; Determine to which port to write
+842+  0BDE E6 04           and $04
+843+  0BE0 0F              rrca
+844+  0BE1 FD 6F           ld iyl, a
+845+  0BE3 79              ld a, c
+846+  0BE4                 
+847+  0BE4 E6 03           and $03                     ; Load dummy FM instrument
+848+  0BE6 C6 40           add $40
+849+  0BE8 0E 06           ld c, 6
+850+  0BEA 21 B5 11        ld hl, DummyFMInstr
+851+  0BED             .loaddummy:
+852+  0BED 08              ex af, af'
+853+  0BEE                 PollPCM
+853+  0BEE 3A 00 40    >    ld a, ($4000)
+853+  0BF1 0F          >    rrca
+853+  0BF2 CF          >    rst $08
+854+  0BF3 08              ex af, af'
+855+  0BF4 5E              ld e, (hl)
+856+  0BF5                 
+857+  0BF5 FD 77 00        ld (iy+0), a
+858+  0BF8 FD 73 01        ld (iy+1), e
+859+  0BFB C6 04           add 4
+860+  0BFD 08              ex af, af'
+861+  0BFE                 PollPCM
+861+  0BFE 3A 00 40    >    ld a, ($4000)
+861+  0C01 0F          >    rrca
+861+  0C02 CF          >    rst $08
+862+  0C03 08              ex af, af'
+863+  0C04 FD 77 00        ld (iy+0), a
+864+  0C07 FD 73 01        ld (iy+1), e
+865+  0C0A C6 04           add 4
+866+  0C0C 08              ex af, af'
+867+  0C0D                 PollPCM
+867+  0C0D 3A 00 40    >    ld a, ($4000)
+867+  0C10 0F          >    rrca
+867+  0C11 CF          >    rst $08
+868+  0C12 08              ex af, af'
+869+  0C13 FD 77 00        ld (iy+0), a
+870+  0C16 FD 73 01        ld (iy+1), e
+871+  0C19 C6 04           add 4
+872+  0C1B 08              ex af, af'
+873+  0C1C                 PollPCM
+873+  0C1C 3A 00 40    >    ld a, ($4000)
+873+  0C1F 0F          >    rrca
+873+  0C20 CF          >    rst $08
+874+  0C21 08              ex af, af'
+875+  0C22 FD 77 00        ld (iy+0), a
+876+  0C25 FD 73 01        ld (iy+1), e
+877+  0C28 C6 04           add 4
+878+  0C2A                 
+879+  0C2A 2C              inc l
+880+  0C2B 0D              dec c
+881+  0C2C C2 ED 0B        jp nz, .loaddummy
+882+  0C2F                 
+883+  0C2F E1              pop hl
+884+  0C30 D1              pop de
+885+  0C31                 PollPCM
+885+  0C31 3A 00 40    >    ld a, ($4000)
+885+  0C34 0F          >    rrca
+885+  0C35 CF          >    rst $08
+886+  0C36 F1              pop af
+887+  0C37                 
+888+  0C37 4F              ld c, a                     ; Cause the ADSR to reset
+889+  0C38 F6 F0           or $F0
+890+  0C3A DD 36 00 28     ld (ix+0), $28
+891+  0C3E DD 71 01        ld (ix+1), c
+892+  0C41 DD 36 00 28     ld (ix+0), $28
+893+  0C45 DD 77 01        ld (ix+1), a
+894+  0C48 DD 36 00 28     ld (ix+0), $28
+895+  0C4C DD 71 01        ld (ix+1), c
+896+  0C4F                 
+897+  0C4F                 PollPCM
+897+  0C4F 3A 00 40    >    ld a, ($4000)
+897+  0C52 0F          >    rrca
+897+  0C53 CF          >    rst $08
+898+  0C54 C9              ret                         ; End of subroutine
+899+  0C55             
+900+  0C55             ;****************************************************************************
+901+  0C55             ; RestoreFM
+902+  0C55             ; Restores a FM channel (from BGM information)
+903+  0C55             ;----------------------------------------------------------------------------
+904+  0C55             ; input b ... FM channel (0..7)
+905+  0C55             ;----------------------------------------------------------------------------
+906+  0C55             ; breaks: af, hl
+907+  0C55             ;****************************************************************************
+908+  0C55             
+909+  0C55             RestoreFM:
+910+  0C55 78              ld a, b                       ; Restore BGM FM instrument
+911+  0C56 26 12           ld h, RAM_BGMFMInstr>>8
+912+  0C58 C6 40           add RAM_BGMFMInstr&$FF
+913+  0C5A 6F              ld l, a
+914+  0C5B                 
+915+  0C5B C5              push bc
+916+  0C5C 78              ld a, b
+917+  0C5D 46              ld b, (hl)
+918+  0C5E CD 1D 09        call LoadFMDirect
+919+  0C61 C1              pop bc
+920+  0C62                 
+921+  0C62                 PollPCM
+921+  0C62 3A 00 40    >    ld a, ($4000)
+921+  0C65 0F          >    rrca
+921+  0C66 CF          >    rst $08
+922+  0C67                 
+923+  0C67 C5              push bc
+924+  0C68 7D              ld a, l                       ; Restore BGM FM volume
+925+  0C69 C6 08           add 8
+926+  0C6B 6F              ld l, a
+927+  0C6C 78              ld a, b
+928+  0C6D 46              ld b, (hl)
+929+  0C6E CD 3C 0A        call SetFMVolLoad
+930+  0C71 C1              pop bc
+931+  0C72                 
+932+  0C72 7D              ld a, l                       ; Restore BGM FM panning
+933+  0C73 C6 08           add 8
+934+  0C75 6F              ld l, a
+935+  0C76 78              ld a, b
+936+  0C77 E6 03           and $03
+937+  0C79 C6 B4           add $B4
+938+  0C7B FD 77 00        ld (iy+0), a
+939+  0C7E 7E              ld a, (hl)
+940+  0C7F FD 77 01        ld (iy+1), a
+941+  0C82             
+942+  0C82                 PollPCM
+942+  0C82 3A 00 40    >    ld a, ($4000)
+942+  0C85 0F          >    rrca
+942+  0C86 CF          >    rst $08
+943+  0C87 C9              ret                         ; End of subroutine
+011   0C88                 include "player/psg.z80"
+001+  0C88             ;****************************************************************************
+002+  0C88             ; UpdatePSG
+003+  0C88             ; Updates PSG output
+004+  0C88             ;****************************************************************************
+005+  0C88             
+006+  0C88             UpdatePSG:
+007+  0C88 21 30 12        ld hl, RAM_PSGData+48       ; PSG envelope data of *last* channel
+008+  0C8B 06 03           ld b, 3                     ; Go through all channels
+009+  0C8D             .loop:
+010+  0C8D C5              push bc
+011+  0C8E             
+012+  0C8E 7E              ld a, (hl)                  ; Get channel volume
+013+  0C8F             ;    bit 7, a
+014+  0C8F             ;    jr nz, .noskip
+015+  0C8F B7              or a
+016+  0C90 FA 99 0C        jp m, .noskip
+017+  0C93 06 0F           ld b, $0F
+018+  0C95 2C              inc l
+019+  0C96 C3 E5 0C        jp .skip
+020+  0C99             .noskip:
+021+  0C99 E6 7F           and $7F
+022+  0C9B 47              ld b, a
+023+  0C9C             
+024+  0C9C 2C              inc l                       ; Add global volume
+025+  0C9D 7E              ld a, (hl)
+026+  0C9E 80              add b
+027+  0C9F 47              ld b, a
+028+  0CA0             
+029+  0CA0                 PollPCM
+029+  0CA0 3A 00 40    >    ld a, ($4000)
+029+  0CA3 0F          >    rrca
+029+  0CA4 CF          >    rst $08
+030+  0CA5 C5              push bc
+031+  0CA6             
+032+  0CA6 2C              inc l                       ; Get current address of envelope
+033+  0CA7 4E              ld c, (hl)
+034+  0CA8 2C              inc l
+035+  0CA9 5E              ld e, (hl)
+036+  0CAA 2C              inc l
+037+  0CAB 56              ld d, (hl)
+038+  0CAC EB              ex de, hl
+039+  0CAD             
+040+  0CAD             .readenv:
+041+  0CAD                 PollPCM
+041+  0CAD 3A 00 40    >    ld a, ($4000)
+041+  0CB0 0F          >    rrca
+041+  0CB1 CF          >    rst $08
+042+  0CB2 CD EA 02        call GetParam               ; Get next byte
+043+  0CB5                 PollPCM
+043+  0CB5 3A 00 40    >    ld a, ($4000)
+043+  0CB8 0F          >    rrca
+043+  0CB9 CF          >    rst $08
+044+  0CBA             
+045+  0CBA 78              ld a, b
+046+  0CBB FE FE           cp $FE                      ; Set loop point?
+047+  0CBD CA 08 0D        jp z, .envsetloop
+048+  0CC0 FE FF           cp $FF                      ; Loop envelope?
+049+  0CC2 CA 1B 0D        jp z, .envloop
+050+  0CC5             
+051+  0CC5 FD 68           ld iyl, b                   ; Keep byte safe somewhere...
+052+  0CC7                 PollPCM
+052+  0CC7 3A 00 40    >    ld a, ($4000)
+052+  0CCA 0F          >    rrca
+052+  0CCB CF          >    rst $08
+053+  0CCC             
+054+  0CCC EB              ex de, hl                   ; Store new address
+055+  0CCD 72              ld (hl), d
+056+  0CCE 2D              dec l
+057+  0CCF 73              ld (hl), e
+058+  0CD0 2D              dec l
+059+  0CD1 71              ld (hl), c
+060+  0CD2 2D              dec l
+061+  0CD3             
+062+  0CD3 C1              pop bc
+063+  0CD4                 PollPCM
+063+  0CD4 3A 00 40    >    ld a, ($4000)
+063+  0CD7 0F          >    rrca
+063+  0CD8 CF          >    rst $08
+064+  0CD9             
+065+  0CD9 FD 7D           db $FD,$7D ; ld a, iyl      ; Mix envelope with volume
+066+  0CDB E6 0F           and $0F
+067+  0CDD 80              add b
+068+  0CDE 47              ld b, a
+069+  0CDF             
+070+  0CDF FE 10           cp $10                      ; Check for overflow
+071+  0CE1 38 02           jr c, .notmute
+072+  0CE3 06 0F           ld b, $0F
+073+  0CE5             .notmute:
+074+  0CE5             
+075+  0CE5             .skip:
+076+  0CE5                 PollPCM
+076+  0CE5 3A 00 40    >    ld a, ($4000)
+076+  0CE8 0F          >    rrca
+076+  0CE9 CF          >    rst $08
+077+  0CEA             
+078+  0CEA 78              ld a, b                     ; Set PSG channel volume
+079+  0CEB 07              rlca   
+080+  0CEC 07              rlca
+081+  0CED 07              rlca
+082+  0CEE C1              pop bc
+083+  0CEF B0              or b
+084+  0CF0 0F              rrca
+085+  0CF1 0F              rrca
+086+  0CF2 0F              rrca
+087+  0CF3 F6 90           or $90
+088+  0CF5 32 11 7F        ld ($7F11), a
+089+  0CF8             
+090+  0CF8 7D              ld a, l                     ; Go for next channel
+091+  0CF9 D6 11           sub 16+1
+092+  0CFB 6F              ld l, a
+093+  0CFC                 PollPCM
+093+  0CFC 3A 00 40    >    ld a, ($4000)
+093+  0CFF 0F          >    rrca
+093+  0D00 CF          >    rst $08
+094+  0D01 05              dec b
+095+  0D02 F2 8D 0C        jp p, .loop
+096+  0D05             
+097+  0D05 C3 BA 02        jp DoTick_PSGSkip           ; End of subroutine
+098+  0D08             
+099+  0D08             .envsetloop:
+100+  0D08                 PollPCM
+100+  0D08 3A 00 40    >    ld a, ($4000)
+100+  0D0B 0F          >    rrca
+100+  0D0C CF          >    rst $08
+101+  0D0D 1C              inc e                       ; Where we store the loop point
+102+  0D0E             
+103+  0D0E EB              ex de, hl                   ; Store loop point
+104+  0D0F 71              ld (hl), c
+105+  0D10 2C              inc l
+106+  0D11 73              ld (hl), e
+107+  0D12 2C              inc l
+108+  0D13 72              ld (hl), d
+109+  0D14 EB              ex de, hl
+110+  0D15             
+111+  0D15 1D              dec e                       ; Back to where we were...
+112+  0D16 1D              dec e
+113+  0D17 1D              dec e
+114+  0D18 C3 AD 0C        jp .readenv                 ; Go for next byte
+115+  0D1B             
+116+  0D1B             .envloop:
+117+  0D1B                 PollPCM
+117+  0D1B 3A 00 40    >    ld a, ($4000)
+117+  0D1E 0F          >    rrca
+117+  0D1F CF          >    rst $08
+118+  0D20 1C              inc e                       ; Where we store the loop point
+119+  0D21             
+120+  0D21 EB              ex de, hl                   ; Retrieve loop point
+121+  0D22 4E              ld c, (hl)
+122+  0D23 2C              inc l
+123+  0D24 5E              ld e, (hl)
+124+  0D25 2C              inc l
+125+  0D26 56              ld d, (hl)
+126+  0D27 EB              ex de, hl
+127+  0D28             
+128+  0D28 1D              dec e                       ; Back to where we were...
+129+  0D29 1D              dec e
+130+  0D2A 1D              dec e
+131+  0D2B C3 AD 0C        jp .readenv                 ; Go for next byte
+132+  0D2E             
+133+  0D2E             ;****************************************************************************
+134+  0D2E             ; NoteOnPSG*
+135+  0D2E             ; Does a "note on" for a PSG channel
+136+  0D2E             ;****************************************************************************
+137+  0D2E             
+138+  0D2E             NoteOnPSGSFX:
+139+  0D2E CD 50 0D        call NoteOnPSG              ; We're just a wrapper
+140+  0D31 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+141+  0D34             
+142+  0D34             NoteOnPSGBGM:
+143+  0D34 47              ld b, a
+144+  0D35                 PollPCM
+144+  0D35 3A 00 40    >    ld a, ($4000)
+144+  0D38 0F          >    rrca
+144+  0D39 CF          >    rst $08
+145+  0D3A 78              ld a, b
+146+  0D3B             
+147+  0D3B E5              push hl
+148+  0D3C E6 03           and $03                     ; Check if channel is free
+149+  0D3E 21 90 12        ld hl, RAM_Locked+8
+150+  0D41 85              add l
+151+  0D42 6F              ld l, a
+152+  0D43 7E              ld a, (hl)
+153+  0D44 E1              pop hl
+154+  0D45 B7              or a
+155+  0D46 C2 BC 04        jp nz, ProcessBGMSkip1      ; Don't play if locked
+156+  0D49             
+157+  0D49 78              ld a, b
+158+  0D4A CD 50 0D        call NoteOnPSG              ; We're just a wrapper
+159+  0D4D C3 07 04        jp ProcessBGMRun            ; End of subroutine
+160+  0D50             
+161+  0D50             NoteOnPSG:
+162+  0D50 E6 03           and $03
+163+  0D52 47              ld b, a
+164+  0D53                 ;push af
+165+  0D53 08              ex af, af'
+166+  0D54                 PollPCM
+166+  0D54 3A 00 40    >    ld a, ($4000)
+166+  0D57 0F          >    rrca
+166+  0D58 CF          >    rst $08
+167+  0D59             
+168+  0D59 E5              push hl                     ; Set channel volume
+169+  0D5A 26 12           ld h, RAM_PSGData>>8
+170+  0D5C 78              ld a, b
+171+  0D5D 0F              rrca
+172+  0D5E 0F              rrca
+173+  0D5F 0F              rrca
+174+  0D60 0F              rrca
+175+  0D61 6F              ld l, a
+176+  0D62 7E              ld a, (hl)
+177+  0D63 F6 80           or $80
+178+  0D65 77              ld (hl), a
+179+  0D66             
+180+  0D66                 PollPCM
+180+  0D66 3A 00 40    >    ld a, ($4000)
+180+  0D69 0F          >    rrca
+180+  0D6A CF          >    rst $08
+181+  0D6B D5              push de
+182+  0D6C             
+183+  0D6C 2C              inc l                       ; Now we'll reset the envelope address...
+184+  0D6D 2C              inc l
+185+  0D6E 54              ld d, h
+186+  0D6F 7D              ld a, l
+187+  0D70 C6 06           add 6
+188+  0D72 5F              ld e, a
+189+  0D73             
+190+  0D73                 PollPCM
+190+  0D73 3A 00 40    >    ld a, ($4000)
+190+  0D76 0F          >    rrca
+190+  0D77 CF          >    rst $08
+191+  0D78             
+192+  0D78 1A              ld a, (de)                  ; Reset envelope address
+193+  0D79 77              ld (hl), a
+194+  0D7A 2C              inc l
+195+  0D7B 1C              inc e
+196+  0D7C 1A              ld a, (de)
+197+  0D7D 77              ld (hl), a
+198+  0D7E 2C              inc l
+199+  0D7F 1C              inc e
+200+  0D80 1A              ld a, (de)
+201+  0D81 77              ld (hl), a
+202+  0D82             
+203+  0D82 D1              pop de
+204+  0D83 E1              pop hl
+205+  0D84             
+206+  0D84                 PollPCM
+206+  0D84 3A 00 40    >    ld a, ($4000)
+206+  0D87 0F          >    rrca
+206+  0D88 CF          >    rst $08
+207+  0D89 CD EA 02        call GetParam               ; Get note
+208+  0D8C                 PollPCM
+208+  0D8C 3A 00 40    >    ld a, ($4000)
+208+  0D8F 0F          >    rrca
+208+  0D90 CF          >    rst $08
+209+  0D91             
+210+  0D91                 ;pop af
+211+  0D91 08              ex af, af'
+212+  0D92 E5              push hl
+213+  0D93 D5              push de
+214+  0D94 26 11           ld h, PSGFreqTable>>8       ; Get address of frequency data
+215+  0D96 68              ld l, b
+216+  0D97 11 11 7F        ld de, $7F11
+217+  0D9A             
+218+  0D9A 0F              rrca                        ; Set new frequency
+219+  0D9B 0F              rrca
+220+  0D9C 0F              rrca
+221+  0D9D 46              ld b, (hl)
+222+  0D9E B0              or b
+223+  0D9F 12              ld (de), a
+224+  0DA0 2C              inc l
+225+  0DA1 7E              ld a, (hl)
+226+  0DA2 12              ld (de), a
+227+  0DA3 D1              pop de
+228+  0DA4 E1              pop hl
+229+  0DA5             
+230+  0DA5 C9              ret                         ; End of subroutine
+231+  0DA6             
+232+  0DA6             ;****************************************************************************
+233+  0DA6             ; NoteOnNoise*
+234+  0DA6             ; Does a "note on" for the noise PSG channel
+235+  0DA6             ;****************************************************************************
+236+  0DA6             
+237+  0DA6             NoteOnNoiseSFX:
+238+  0DA6 CD B9 0D        call NoteOnNoise            ; We're just a wrapper
+239+  0DA9 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+240+  0DAC             
+241+  0DAC             NoteOnNoiseBGM:
+242+  0DAC 3A 93 12        ld a, (RAM_Locked+11)       ; Check if channel is free
+243+  0DAF B7              or a
+244+  0DB0 C2 BC 04        jp nz, ProcessBGMSkip1      ; Don't play if locked
+245+  0DB3             
+246+  0DB3 CD B9 0D        call NoteOnNoise            ; We're just a wrapper
+247+  0DB6 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+248+  0DB9             
+249+  0DB9             NoteOnNoise:
+250+  0DB9                 PollPCM
+250+  0DB9 3A 00 40    >    ld a, ($4000)
+250+  0DBC 0F          >    rrca
+250+  0DBD CF          >    rst $08
+251+  0DBE E5              push hl
+252+  0DBF             
+253+  0DBF 21 30 12        ld hl, RAM_PSGData+48       ; Set channel volume
+254+  0DC2 7E              ld a, (hl)
+255+  0DC3 F6 80           or $80
+256+  0DC5 77              ld (hl), a
+257+  0DC6             
+258+  0DC6                 PollPCM
+258+  0DC6 3A 00 40    >    ld a, ($4000)
+258+  0DC9 0F          >    rrca
+258+  0DCA CF          >    rst $08
+259+  0DCB D5              push de
+260+  0DCC             
+261+  0DCC 2C              inc l                       ; Now we'll reset the envelope address...
+262+  0DCD 2C              inc l
+263+  0DCE 54              ld d, h
+264+  0DCF 7D              ld a, l
+265+  0DD0 C6 06           add 6
+266+  0DD2 5F              ld e, a
+267+  0DD3             
+268+  0DD3                 PollPCM
+268+  0DD3 3A 00 40    >    ld a, ($4000)
+268+  0DD6 0F          >    rrca
+268+  0DD7 CF          >    rst $08
+269+  0DD8             
+270+  0DD8 1A              ld a, (de)                  ; Reset envelope address
+271+  0DD9 77              ld (hl), a
+272+  0DDA 2C              inc l
+273+  0DDB 1C              inc e
+274+  0DDC 1A              ld a, (de)
+275+  0DDD 77              ld (hl), a
+276+  0DDE 2C              inc l
+277+  0DDF 1C              inc e
+278+  0DE0 1A              ld a, (de)
+279+  0DE1 77              ld (hl), a
+280+  0DE2             
+281+  0DE2 D1              pop de
+282+  0DE3 E1              pop hl
+283+  0DE4             
+284+  0DE4             SetNoteNoise:
+285+  0DE4                 PollPCM
+285+  0DE4 3A 00 40    >    ld a, ($4000)
+285+  0DE7 0F          >    rrca
+285+  0DE8 CF          >    rst $08
+286+  0DE9 CD EA 02        call GetParam               ; Get noise type
+287+  0DEC                 PollPCM
+287+  0DEC 3A 00 40    >    ld a, ($4000)
+287+  0DEF 0F          >    rrca
+287+  0DF0 CF          >    rst $08
+288+  0DF1             
+289+  0DF1 3E E0           ld a, $E0                   ; Set new noise type
+290+  0DF3 B0              or b
+291+  0DF4 32 11 7F        ld ($7F11), a
+292+  0DF7             
+293+  0DF7 C9              ret                         ; End of subroutine
+294+  0DF8             
+295+  0DF8             ;****************************************************************************
+296+  0DF8             ; NoteOffPSG*
+297+  0DF8             ; Does a "note off" for a PSG channel
+298+  0DF8             ;****************************************************************************
+299+  0DF8             
+300+  0DF8             NoteOffPSGSFX:
+301+  0DF8 CD 1A 0E        call NoteOffPSG             ; We're just a wrapper
+302+  0DFB C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+303+  0DFE             
+304+  0DFE             NoteOffPSGBGM:
+305+  0DFE 47              ld b, a
+306+  0DFF                 PollPCM
+306+  0DFF 3A 00 40    >    ld a, ($4000)
+306+  0E02 0F          >    rrca
+306+  0E03 CF          >    rst $08
+307+  0E04 78              ld a, b
+308+  0E05             
+309+  0E05 E5              push hl
+310+  0E06 E6 03           and $03                     ; Check if channel is free
+311+  0E08 21 90 12        ld hl, RAM_Locked+8
+312+  0E0B 85              add l
+313+  0E0C 6F              ld l, a
+314+  0E0D 7E              ld a, (hl)
+315+  0E0E E1              pop hl
+316+  0E0F B7              or a
+317+  0E10 C2 07 04        jp nz, ProcessBGMRun        ; Don't stop if locked
+318+  0E13             
+319+  0E13 78              ld a, b
+320+  0E14 CD 1A 0E        call NoteOffPSG             ; We're just a wrapper
+321+  0E17 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+322+  0E1A             
+323+  0E1A             NoteOffPSG:
+324+  0E1A E6 03           and $03
+325+  0E1C 47              ld b, a
+326+  0E1D                 PollPCM
+326+  0E1D 3A 00 40    >    ld a, ($4000)
+326+  0E20 0F          >    rrca
+326+  0E21 CF          >    rst $08
+327+  0E22             
+328+  0E22 E5              push hl                     ; Mark channel as not playing
+329+  0E23 26 12           ld h, RAM_PSGData>>8
+330+  0E25 78              ld a, b
+331+  0E26 0F              rrca
+332+  0E27 0F              rrca
+333+  0E28 0F              rrca
+334+  0E29 0F              rrca
+335+  0E2A 6F              ld l, a
+336+  0E2B 7E              ld a, (hl)
+337+  0E2C E6 7F           and $7F
+338+  0E2E 77              ld (hl), a
+339+  0E2F E1              pop hl
+340+  0E30             
+341+  0E30 C9              ret                         ; End of subroutine
+342+  0E31             
+343+  0E31             ;****************************************************************************
+344+  0E31             ; SetPSGVol*
+345+  0E31             ; Sets the volume of a PSG channel
+346+  0E31             ;****************************************************************************
+347+  0E31             
+348+  0E31             SetPSGVolSFX:
+349+  0E31 E6 03           and $03                     ; Get channel ID
+350+  0E33             
+351+  0E33 08              ex af, af'
+352+  0E34                 PollPCM
+352+  0E34 3A 00 40    >    ld a, ($4000)
+352+  0E37 0F          >    rrca
+352+  0E38 CF          >    rst $08
+353+  0E39 CD EA 02        call GetParam               ; Get volume
+354+  0E3C                 PollPCM
+354+  0E3C 3A 00 40    >    ld a, ($4000)
+354+  0E3F 0F          >    rrca
+354+  0E40 CF          >    rst $08
+355+  0E41 08              ex af, af'
+356+  0E42             
+357+  0E42 E5              push hl
+358+  0E43 26 12           ld h, RAM_PSGData>>8        ; Set new volume
+359+  0E45 0F              rrca
+360+  0E46 0F              rrca
+361+  0E47 0F              rrca
+362+  0E48 0F              rrca
+363+  0E49 6F              ld l, a
+364+  0E4A 7E              ld a, (hl)
+365+  0E4B E6 80           and $80
+366+  0E4D B0              or b
+367+  0E4E 77              ld (hl), a
+368+  0E4F E1              pop hl
+369+  0E50             
+370+  0E50 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+371+  0E53             
+372+  0E53             SetPSGVolBGM:
+373+  0E53 E6 03           and $03                     ; Get channel ID
+374+  0E55             
+375+  0E55 08              ex af, af'
+376+  0E56                 PollPCM
+376+  0E56 3A 00 40    >    ld a, ($4000)
+376+  0E59 0F          >    rrca
+376+  0E5A CF          >    rst $08
+377+  0E5B CD EA 02        call GetParam               ; Get volume
+378+  0E5E                 PollPCM
+378+  0E5E 3A 00 40    >    ld a, ($4000)
+378+  0E61 0F          >    rrca
+378+  0E62 CF          >    rst $08
+379+  0E63 08              ex af, af'
+380+  0E64             
+381+  0E64 D5              push de
+382+  0E65 E5              push hl
+383+  0E66             
+384+  0E66 F5              push af
+385+  0E67 11 90 12        ld de, RAM_Locked+8         ; Check if channel is locked
+386+  0E6A 83              add e                         ; Keep results for later
+387+  0E6B 5F              ld e, a
+388+  0E6C 1A              ld a, (de)
+389+  0E6D 5F              ld e, a
+390+  0E6E             
+391+  0E6E                 PollPCM
+391+  0E6E 3A 00 40    >    ld a, ($4000)
+391+  0E71 0F          >    rrca
+391+  0E72 CF          >    rst $08
+392+  0E73 F1              pop af
+393+  0E74             
+394+  0E74 26 12           ld h, RAM_PSGData>>8        ; Store new volume
+395+  0E76 0F              rrca
+396+  0E77 0F              rrca
+397+  0E78 0F              rrca
+398+  0E79 0F              rrca
+399+  0E7A C6 0F           add 15
+400+  0E7C 6F              ld l, a
+401+  0E7D 70              ld (hl), b
+402+  0E7E             
+403+  0E7E                 PollPCM
+403+  0E7E 3A 00 40    >    ld a, ($4000)
+403+  0E81 0F          >    rrca
+403+  0E82 CF          >    rst $08
+404+  0E83             
+405+  0E83 7B              ld a, e                     ; Is channel locked?
+406+  0E84 B7              or a
+407+  0E85 20 0E           jr nz, .nosetvol
+408+  0E87             
+409+  0E87 7D              ld a, l                     ; Set new volume
+410+  0E88 D6 0F           sub 15
+411+  0E8A 6F              ld l, a
+412+  0E8B 7E              ld a, (hl)
+413+  0E8C E6 80           and $80
+414+  0E8E B0              or b
+415+  0E8F 77              ld (hl), a
+416+  0E90             
+417+  0E90                 PollPCM
+417+  0E90 3A 00 40    >    ld a, ($4000)
+417+  0E93 0F          >    rrca
+417+  0E94 CF          >    rst $08
+418+  0E95             
+419+  0E95             .nosetvol:
+420+  0E95 E1              pop hl
+421+  0E96 D1              pop de
+422+  0E97             
+423+  0E97 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+424+  0E9A             
+425+  0E9A             ;****************************************************************************
+426+  0E9A             ; LoadPSG*
+427+  0E9A             ; Loads a PSG instrument
+428+  0E9A             ;****************************************************************************
+429+  0E9A             
+430+  0E9A             LoadPSGSFX:
+431+  0E9A E6 03           and $03                     ; Get channel number
+432+  0E9C             
+433+  0E9C 08              ex af, af'
+434+  0E9D                 PollPCM
+434+  0E9D 3A 00 40    >    ld a, ($4000)
+434+  0EA0 0F          >    rrca
+434+  0EA1 CF          >    rst $08
+435+  0EA2 CD EA 02        call GetParam               ; Get instrument ID
+436+  0EA5                 PollPCM
+436+  0EA5 3A 00 40    >    ld a, ($4000)
+436+  0EA8 0F          >    rrca
+436+  0EA9 CF          >    rst $08
+437+  0EAA 08              ex af, af'
+438+  0EAB             
+439+  0EAB D5              push de
+440+  0EAC E5              push hl
+441+  0EAD             
+442+  0EAD 16 1C           ld d, RAM_PointerList>>8    ; Get position in pointer list
+443+  0EAF 58              ld e, b
+444+  0EB0             
+445+  0EB0 26 12           ld h, RAM_PSGData>>8        ; Where to store address
+446+  0EB2 0F              rrca
+447+  0EB3 0F              rrca
+448+  0EB4 0F              rrca
+449+  0EB5 0F              rrca
+450+  0EB6 C6 0A           add 8+2+(RAM_PSGData&$FF)
+451+  0EB8 6F              ld l, a
+452+  0EB9             
+453+  0EB9                 PollPCM
+453+  0EB9 3A 00 40    >    ld a, ($4000)
+453+  0EBC 0F          >    rrca
+453+  0EBD CF          >    rst $08
+454+  0EBE             
+455+  0EBE 1A              ld a, (de)                  ; Store PSG envelope start address
+456+  0EBF 77              ld (hl), a
+457+  0EC0 14              inc d
+458+  0EC1 2D              dec l
+459+  0EC2 1A              ld a, (de)
+460+  0EC3 77              ld (hl), a
+461+  0EC4 14              inc d
+462+  0EC5 2D              dec l
+463+  0EC6 1A              ld a, (de)
+464+  0EC7 77              ld (hl), a
+465+  0EC8                 
+466+  0EC8                 PollPCM
+466+  0EC8 3A 00 40    >    ld a, ($4000)
+466+  0ECB 0F          >    rrca
+466+  0ECC CF          >    rst $08
+467+  0ECD                 
+468+  0ECD 7D              ld a, l                     ; Reset volume
+469+  0ECE D6 08           sub 8
+470+  0ED0 6F              ld l, a
+471+  0ED1 36 00           ld (hl), $00
+472+  0ED3             
+473+  0ED3 E1              pop hl
+474+  0ED4 D1              pop de
+475+  0ED5 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+476+  0ED8             
+477+  0ED8             ;----------------------------------------------------------------------------
+478+  0ED8             
+479+  0ED8             LoadPSGBGM:
+480+  0ED8 E6 03           and $03                     ; Get channel number
+481+  0EDA             
+482+  0EDA 08              ex af, af'
+483+  0EDB                 PollPCM
+483+  0EDB 3A 00 40    >    ld a, ($4000)
+483+  0EDE 0F          >    rrca
+483+  0EDF CF          >    rst $08
+484+  0EE0 CD EA 02        call GetParam               ; Get instrument ID
+485+  0EE3                 PollPCM
+485+  0EE3 3A 00 40    >    ld a, ($4000)
+485+  0EE6 0F          >    rrca
+485+  0EE7 CF          >    rst $08
+486+  0EE8 08              ex af, af'
+487+  0EE9             
+488+  0EE9 D5              push de
+489+  0EEA E5              push hl
+490+  0EEB             
+491+  0EEB 16 1C           ld d, RAM_PointerList>>8    ; Get position in pointer list
+492+  0EED 58              ld e, b
+493+  0EEE             
+494+  0EEE 21 90 12        ld hl, RAM_Locked+8         ; Get if channel is locked
+495+  0EF1 F5              push af
+496+  0EF2 85              add l
+497+  0EF3 6F              ld l, a
+498+  0EF4 F1              pop af
+499+  0EF5 46              ld b, (hl)
+500+  0EF6             
+501+  0EF6 26 12           ld h, RAM_PSGData>>8        ; Where to store BGM instrument data
+502+  0EF8 0F              rrca
+503+  0EF9 0F              rrca
+504+  0EFA 0F              rrca
+505+  0EFB 0F              rrca
+506+  0EFC C6 0F           add 15
+507+  0EFE 6F              ld l, a
+508+  0EFF             
+509+  0EFF                 PollPCM
+509+  0EFF 3A 00 40    >    ld a, ($4000)
+509+  0F02 0F          >    rrca
+509+  0F03 CF          >    rst $08
+510+  0F04                 
+511+  0F04 77              ld (hl), a                  ; Reset volume for BGM
+512+  0F05 2D              dec l
+513+  0F06             
+514+  0F06 1A              ld a, (de)                  ; Store PSG envelope address for BGM
+515+  0F07 77              ld (hl), a
+516+  0F08 14              inc d
+517+  0F09 2D              dec l
+518+  0F0A 1A              ld a, (de)
+519+  0F0B 77              ld (hl), a
+520+  0F0C 14              inc d
+521+  0F0D 2D              dec l
+522+  0F0E 1A              ld a, (de)
+523+  0F0F 77              ld (hl), a
+524+  0F10             
+525+  0F10                 PollPCM
+525+  0F10 3A 00 40    >    ld a, ($4000)
+525+  0F13 0F          >    rrca
+525+  0F14 CF          >    rst $08
+526+  0F15             
+527+  0F15 78              ld a, b                     ; Don't set PSG envelope if locked
+528+  0F16 B7              or a
+529+  0F17 CA 1F 0F        jp z, .noloadlocked
+530+  0F1A E1              pop hl
+531+  0F1B D1              pop de
+532+  0F1C C3 07 04        jp ProcessBGMRun
+533+  0F1F             .noloadlocked:
+534+  0F1F                 PollPCM
+534+  0F1F 3A 00 40    >    ld a, ($4000)
+534+  0F22 0F          >    rrca
+534+  0F23 CF          >    rst $08
+535+  0F24             
+536+  0F24 54              ld d, h                     ; Set PSG envelope
+537+  0F25 7D              ld a, l
+538+  0F26 D6 04           sub 12-8
+539+  0F28 5F              ld e, a
+540+  0F29             
+541+  0F29 7E              ld a, (hl)
+542+  0F2A 12              ld (de), a
+543+  0F2B 2C              inc l
+544+  0F2C 1C              inc e
+545+  0F2D 7E              ld a, (hl)
+546+  0F2E 12              ld (de), a
+547+  0F2F 2C              inc l
+548+  0F30 1C              inc e
+549+  0F31 7E              ld a, (hl)
+550+  0F32 12              ld (de), a
+551+  0F33             
+552+  0F33                 PollPCM
+552+  0F33 3A 00 40    >    ld a, ($4000)
+552+  0F36 0F          >    rrca
+552+  0F37 CF          >    rst $08
+553+  0F38                 
+554+  0F38 7D              ld a, l                     ; Reset volume
+555+  0F39 D6 08           sub 8
+556+  0F3B 6F              ld l, a
+557+  0F3C 36 00           ld (hl), $00
+558+  0F3E             
+559+  0F3E E1              pop hl
+560+  0F3F D1              pop de
+561+  0F40 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+562+  0F43             
+563+  0F43             ;****************************************************************************
+564+  0F43             ; SetNotePSG*
+565+  0F43             ; Sets the note of a PSG channel without "note on"
+566+  0F43             ;****************************************************************************
+567+  0F43             
+568+  0F43             SetNotePSGSFX:
+569+  0F43 CD 65 0F        call SetNotePSG             ; We're just a wrapper
+570+  0F46 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+571+  0F49             
+572+  0F49             SetNotePSGBGM:
+573+  0F49 47              ld b, a
+574+  0F4A                 PollPCM
+574+  0F4A 3A 00 40    >    ld a, ($4000)
+574+  0F4D 0F          >    rrca
+574+  0F4E CF          >    rst $08
+575+  0F4F 78              ld a, b
+576+  0F50             
+577+  0F50 E5              push hl
+578+  0F51 E6 0F           and $0F                     ; Check if channel is free
+579+  0F53 26 12           ld h, RAM_Locked>>8
+580+  0F55 C6 88           add RAM_Locked&$FF
+581+  0F57 6F              ld l, a
+582+  0F58 7E              ld a, (hl)
+583+  0F59 E1              pop hl
+584+  0F5A B7              or a
+585+  0F5B C2 AC 04        jp nz, ProcessBGMSkip2      ; Don't play if locked
+586+  0F5E             
+587+  0F5E 78              ld a, b
+588+  0F5F CD 65 0F        call SetNotePSG             ; We're just a wrapper
+589+  0F62 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+590+  0F65             
+591+  0F65             SetNotePSG:
+592+  0F65 E6 03           and $03                     ; Get channel number
+593+  0F67             
+594+  0F67 08              ex af, af'
+595+  0F68                 PollPCM
+595+  0F68 3A 00 40    >    ld a, ($4000)
+595+  0F6B 0F          >    rrca
+595+  0F6C CF          >    rst $08
+596+  0F6D CD EA 02        call GetParam               ; Get first byte
+597+  0F70                 PollPCM
+597+  0F70 3A 00 40    >    ld a, ($4000)
+597+  0F73 0F          >    rrca
+597+  0F74 CF          >    rst $08
+598+  0F75 08              ex af, af'
+599+  0F76             
+600+  0F76 D5              push de                     ; PSG port address
+601+  0F77 11 11 7F        ld de, $7F11
+602+  0F7A             
+603+  0F7A 0F              rrca                        ; Set first frequency byte
+604+  0F7B 0F              rrca
+605+  0F7C 0F              rrca
+606+  0F7D B0              or b
+607+  0F7E F6 80           or $80
+608+  0F80 12              ld (de), a
+609+  0F81             
+610+  0F81                 PollPCM
+610+  0F81 3A 00 40    >    ld a, ($4000)
+610+  0F84 0F          >    rrca
+610+  0F85 CF          >    rst $08
+611+  0F86 CD EA 02        call GetParam               ; Get second byte
+612+  0F89                 PollPCM
+612+  0F89 3A 00 40    >    ld a, ($4000)
+612+  0F8C 0F          >    rrca
+612+  0F8D CF          >    rst $08
+613+  0F8E             
+614+  0F8E EB              ex de, hl
+615+  0F8F 70              ld (hl), b                  ; Set second frequency byte
+616+  0F90 EB              ex de, hl
+617+  0F91 D1              pop de
+618+  0F92             
+619+  0F92 C9              ret                         ; End of subroutine
+620+  0F93             
+621+  0F93             ;****************************************************************************
+622+  0F93             ; SetNoteNoise*
+623+  0F93             ; Sets the note of the noise PSG channel without "note on"
+624+  0F93             ;****************************************************************************
+625+  0F93             
+626+  0F93             SetNoteNoiseSFX:
+627+  0F93 CD E4 0D        call SetNoteNoise           ; We're just a wrapper
+628+  0F96 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+629+  0F99             
+630+  0F99             SetNoteNoiseBGM:
+631+  0F99 3A 93 12        ld a, (RAM_Locked+11)       ; Check if channel is free
+632+  0F9C B7              or a
+633+  0F9D C2 BC 04        jp nz, ProcessBGMSkip1      ; Don't play if locked
+634+  0FA0             
+635+  0FA0 CD E4 0D        call SetNoteNoise           ; We're just a wrapper
+636+  0FA3 C3 07 04        jp ProcessBGMRun            ; End of subroutine
+637+  0FA6             
+638+  0FA6             ;****************************************************************************
+639+  0FA6             ; LockChannelPSG [events $E8-$EB]
+640+  0FA6             ; Locks a PSG channel
+641+  0FA6             ;****************************************************************************
+642+  0FA6             
+643+  0FA6             LockChannelPSG:
+644+  0FA6 E6 03           and $03
+645+  0FA8 47              ld b, a
+646+  0FA9                 PollPCM
+646+  0FA9 3A 00 40    >    ld a, ($4000)
+646+  0FAC 0F          >    rrca
+646+  0FAD CF          >    rst $08
+647+  0FAE E5              push hl
+648+  0FAF             
+649+  0FAF 26 12           ld h, RAM_Locked>>8         ; Get address of channel to lock
+650+  0FB1 78              ld a, b
+651+  0FB2 C6 90           add (RAM_Locked&$FF)+8
+652+  0FB4 6F              ld l, a
+653+  0FB5             
+654+  0FB5 36 01           ld (hl), $01                ; Lock channel
+655+  0FB7                 
+656+  0FB7                 PollPCM
+656+  0FB7 3A 00 40    >    ld a, ($4000)
+656+  0FBA 0F          >    rrca
+656+  0FBB CF          >    rst $08
+657+  0FBC                 
+658+  0FBC 78              ld a, b                     ; Stop channel
+659+  0FBD 0F              rrca
+660+  0FBE 0F              rrca
+661+  0FBF 0F              rrca
+662+  0FC0 0F              rrca
+663+  0FC1 6F              ld l, a
+664+  0FC2 26 12           ld h, RAM_PSGData>>8
+665+  0FC4 36 00           ld (hl), $00
+666+  0FC6             
+667+  0FC6 E1              pop hl
+668+  0FC7 C3 EE 05        jp ProcessSFXRun            ; End of subroutine
+012   0FCA                 include "player/misc.z80"
+001+  0FCA             ;****************************************************************************
+002+  0FCA             ; SetDelay* [event $FE, events $D0-$DF]
+003+  0FCA             ; Adds a delay in playback
+004+  0FCA             ;----------------------------------------------------------------------------
+005+  0FCA             ; breaks: c, de, hl
+006+  0FCA             ;****************************************************************************
+007+  0FCA             
+008+  0FCA             SetDelaySFX:
+009+  0FCA CD EA 0F        call SetDelay               ; We're just a wrapper
+010+  0FCD C3 9C 02        jp DoTick_SFXSkip           ; End of subroutine
+011+  0FD0             
+012+  0FD0             SetDelayBGM:
+013+  0FD0 CD EA 0F        call SetDelay               ; We're just a wrapper
+014+  0FD3 C3 B2 02        jp DoTick_BGMSkip           ; End of subroutine
+015+  0FD6             
+016+  0FD6             SetDelaySFXShort:
+017+  0FD6 E6 0F           and $0F
+018+  0FD8 3C              inc a
+019+  0FD9 47              ld b, a
+020+  0FDA CD F7 0F        call SetDelayShort          ; We're just a wrapper
+021+  0FDD C3 9C 02        jp DoTick_SFXSkip           ; End of subroutine
+022+  0FE0             
+023+  0FE0             SetDelayBGMShort:
+024+  0FE0 E6 0F           and $0F
+025+  0FE2 3C              inc a
+026+  0FE3 47              ld b, a
+027+  0FE4 CD F7 0F        call SetDelayShort          ; We're just a wrapper
+028+  0FE7 C3 B2 02        jp DoTick_BGMSkip           ; End of subroutine
+029+  0FEA             
+030+  0FEA             SetDelay:
+031+  0FEA                 PollPCM
+031+  0FEA 3A 00 40    >    ld a, ($4000)
+031+  0FED 0F          >    rrca
+031+  0FEE CF          >    rst $08
+032+  0FEF CD EA 02        call GetParam               ; Get delay
+033+  0FF2                 PollPCM
+033+  0FF2 3A 00 40    >    ld a, ($4000)
+033+  0FF5 0F          >    rrca
+033+  0FF6 CF          >    rst $08
+034+  0FF7             
+035+  0FF7             SetDelayShort:
+036+  0FF7 EB              ex de, hl
+037+  0FF8 72              ld (hl), d                  ; Store new address
+038+  0FF9 2D              dec l
+039+  0FFA 73              ld (hl), e
+040+  0FFB 2D              dec l
+041+  0FFC 71              ld (hl), c
+042+  0FFD             
+043+  0FFD                 PollPCM
+043+  0FFD 3A 00 40    >    ld a, ($4000)
+043+  1000 0F          >    rrca
+043+  1001 CF          >    rst $08
+044+  1002             
+045+  1002 2D              dec l                       ; Store new delay
+046+  1003 70              ld (hl), b
+047+  1004             
+048+  1004 C9              ret                         ; End of subroutine
+049+  1005             
+050+  1005             ;****************************************************************************
+051+  1005             ; SetFlags [event $FA]
+052+  1005             ; Sets some of the flags.
+053+  1005             ;----------------------------------------------------------------------------
+054+  1005             ; breaks: c, de, hl
+055+  1005             ;****************************************************************************
+056+  1005             
+057+  1005             SetFlagsSFX:
+058+  1005 CD 11 10        call SetFlags
+059+  1008 C3 EE 05        jp ProcessSFXRun
+060+  100B             
+061+  100B             SetFlagsBGM:
+062+  100B CD 11 10        call SetFlags
+063+  100E C3 07 04        jp ProcessBGMRun
+064+  1011             
+065+  1011             SetFlags:
+066+  1011                 PollPCM                     ; Get which flags to set
+066+  1011 3A 00 40    >    ld a, ($4000)
+066+  1014 0F          >    rrca
+066+  1015 CF          >    rst $08
+067+  1016 CD EA 02        call GetParam
+068+  1019                 PollPCM
+068+  1019 3A 00 40    >    ld a, ($4000)
+068+  101C 0F          >    rrca
+068+  101D CF          >    rst $08
+069+  101E                 
+070+  101E 3A F2 1F        ld a, (RAM_Flags)           ; Set the flags
+071+  1021 B0              or b
+072+  1022 32 F2 1F        ld (RAM_Flags), a
+073+  1025                 
+074+  1025 C9              ret                         ; End of subroutine
+075+  1026             
+076+  1026             ;****************************************************************************
+077+  1026             ; ClearFlags [event $FB]
+078+  1026             ; Clears some of the flags.
+079+  1026             ;----------------------------------------------------------------------------
+080+  1026             ; breaks: c, de, hl
+081+  1026             ;****************************************************************************
+082+  1026             
+083+  1026             ClearFlagsSFX:
+084+  1026 CD 32 10        call ClearFlags
+085+  1029 C3 EE 05        jp ProcessSFXRun
+086+  102C             
+087+  102C             ClearFlagsBGM:
+088+  102C CD 32 10        call ClearFlags
+089+  102F C3 07 04        jp ProcessBGMRun
+090+  1032             
+091+  1032             ClearFlags:
+092+  1032                 PollPCM                     ; Get which flags to clear
+092+  1032 3A 00 40    >    ld a, ($4000)
+092+  1035 0F          >    rrca
+092+  1036 CF          >    rst $08
+093+  1037 CD EA 02        call GetParam
+094+  103A                 PollPCM
+094+  103A 3A 00 40    >    ld a, ($4000)
+094+  103D 0F          >    rrca
+094+  103E CF          >    rst $08
+095+  103F                 
+096+  103F 3A F2 1F        ld a, (RAM_Flags)           ; Clear the flags
+097+  1042 A0              and b
+098+  1043 32 F2 1F        ld (RAM_Flags), a
+099+  1046                 
+100+  1046 C9              ret                         ; End of subroutine
+101+  1047             
+102+  1047             ;****************************************************************************
+103+  1047             ; RefreshVolume
+104+  1047             ; Reloads the volume for all channels.
+105+  1047             ;----------------------------------------------------------------------------
+106+  1047             ; breaks: all
+107+  1047             ;****************************************************************************
+108+  1047             
+109+  1047             RefreshVolume:
+110+  1047 21 F0 1F        ld hl, $1FF0                ; Update FM volume
+111+  104A 11 58 12        ld de, RAM_FMVol
+112+  104D 0E 08           ld c, 8
+113+  104F             .fixfmvol:
+114+  104F 1A              ld a, (de)
+115+  1050 46              ld b, (hl)
+116+  1051 80              add b
+117+  1052 F2 57 10        jp p, .fixfmvolok
+118+  1055 3E 7F           ld a, $7F
+119+  1057             .fixfmvolok:
+120+  1057 47              ld b, a
+121+  1058 7D              ld a, l
+122+  1059 CD 3C 0A        call SetFMVolLoad
+123+  105C 2C              inc l
+124+  105D 1C              inc e
+125+  105E 0D              dec c
+126+  105F                 PollPCM
+126+  105F 3A 00 40    >    ld a, ($4000)
+126+  1062 0F          >    rrca
+126+  1063 CF          >    rst $08
+127+  1064 20 E9           jr nz, .fixfmvol
+128+  1066                 
+129+  1066 21 E8 1F        ld hl, $1FE8                ; Update PSG volume
+130+  1069 11 01 12        ld de, RAM_PSGData+1
+131+  106C 01 10 04        ld bc, $0410
+132+  106F             .fixpsgvol:
+133+  106F 7E              ld a, (hl)
+134+  1070 12              ld (de), a
+135+  1071 2C              inc l
+136+  1072 7B              ld a, e
+137+  1073 81              add a, c
+138+  1074 5F              ld e, a
+139+  1075                 PollPCM
+139+  1075 3A 00 40    >    ld a, ($4000)
+139+  1078 0F          >    rrca
+139+  1079 CF          >    rst $08
+140+  107A 10 F3           djnz .fixpsgvol
+141+  107C                 
+142+  107C AF              xor a                       ; Mark that volume was refreshed
+143+  107D 32 F1 1F        ld ($1FF1), a
+144+  1080                 
+145+  1080 C9              ret                         ; End of subroutine
+013   1081                 
+014   1081                 include "player/freq.z80"
+001+  1081             ;****************************************************************************
+002+  1081             ; PSGFreqTable
+003+  1081             ; Frequency table for all PSG notes
+004+  1081             ;****************************************************************************
+005+  1081             
+006+  1081 FF              ds $100-($&$FF), $FF
+007+  1100             PSGFreqTable:
+008+  1100 83 35           db  $83, $35    ; C-3 - 851
+009+  1102 83 32           db  $83, $32    ; C#3 - 803
+010+  1104 86 2F           db  $86, $2F    ; D-3 - 758
+011+  1106 8B 2C           db  $8B, $2C    ; D#3 - 715
+012+  1108 83 2A           db  $83, $2A    ; E-3 - 675
+013+  110A 8D 27           db  $8D, $27    ; F-3 - 637
+014+  110C 89 25           db  $89, $25    ; F#3 - 601
+015+  110E 88 23           db  $88, $23    ; G-3 - 568
+016+  1110 88 21           db  $88, $21    ; G#3 - 536
+017+  1112 8A 1F           db  $8A, $1F    ; A-3 - 506
+018+  1114 8D 1D           db  $8D, $1D    ; A#3 - 477
+019+  1116 82 1C           db  $82, $1C    ; B-3 - 450
+020+  1118 89 1A           db  $89, $1A    ; C-4 - 425
+021+  111A 81 19           db  $81, $19    ; C#4 - 401
+022+  111C 8B 17           db  $8B, $17    ; D-4 - 379
+023+  111E 85 16           db  $85, $16    ; D#4 - 357
+024+  1120 81 15           db  $81, $15    ; E-4 - 337
+025+  1122 8E 13           db  $8E, $13    ; F-4 - 318
+026+  1124 8C 12           db  $8C, $12    ; F#4 - 300
+027+  1126 8C 11           db  $8C, $11    ; G-4 - 284
+028+  1128 8C 10           db  $8C, $10    ; G#4 - 268
+029+  112A 8D 0F           db  $8D, $0F    ; A-4 - 253
+030+  112C 8E 0E           db  $8E, $0E    ; A#4 - 238
+031+  112E 81 0E           db  $81, $0E    ; B-4 - 225
+032+  1130 84 0D           db  $84, $0D    ; C-5 - 212
+033+  1132 88 0C           db  $88, $0C    ; C#5 - 200
+034+  1134 8D 0B           db  $8D, $0B    ; D-5 - 189
+035+  1136 82 0B           db  $82, $0B    ; D#5 - 178
+036+  1138 88 0A           db  $88, $0A    ; E-5 - 168
+037+  113A 8F 09           db  $8F, $09    ; F-5 - 159
+038+  113C 86 09           db  $86, $09    ; F#5 - 150
+039+  113E 8E 08           db  $8E, $08    ; G-5 - 142
+040+  1140 86 08           db  $86, $08    ; G#5 - 134
+041+  1142 8E 07           db  $8E, $07    ; A-5 - 126
+042+  1144 87 07           db  $87, $07    ; A#5 - 119
+043+  1146 80 07           db  $80, $07    ; B-5 - 112
+044+  1148 8A 06           db  $8A, $06    ; C-6 - 106
+045+  114A 84 06           db  $84, $06    ; C#6 - 100
+046+  114C 8E 05           db  $8E, $05    ; D-6 - 94
+047+  114E 89 05           db  $89, $05    ; D#6 - 89
+048+  1150 84 05           db  $84, $05    ; E-6 - 84
+049+  1152 8F 04           db  $8F, $04    ; F-6 - 79
+050+  1154 8B 04           db  $8B, $04    ; F#6 - 75
+051+  1156 87 04           db  $87, $04    ; G-6 - 71
+052+  1158 83 04           db  $83, $04    ; G#6 - 67
+053+  115A 8F 03           db  $8F, $03    ; A-6 - 63
+054+  115C 8B 03           db  $8B, $03    ; A#6 - 59
+055+  115E 88 03           db  $88, $03    ; B-6 - 56
+056+  1160 85 03           db  $85, $03    ; C-7 - 53
+057+  1162 82 03           db  $82, $03    ; C#7 - 50
+058+  1164 8F 02           db  $8F, $02    ; D-7 - 47
+059+  1166 8C 02           db  $8C, $02    ; D#7 - 44
+060+  1168 8A 02           db  $8A, $02    ; E-7 - 42
+061+  116A 87 02           db  $87, $02    ; F-7 - 39
+062+  116C 85 02           db  $85, $02    ; F#7 - 37
+063+  116E 83 02           db  $83, $02    ; G-7 - 35
+064+  1170 81 02           db  $81, $02    ; G#7 - 33
+065+  1172 8F 01           db  $8F, $01    ; A-7 - 31
+066+  1174 8D 01           db  $8D, $01    ; A#7 - 29
+067+  1176 8C 01           db  $8C, $01    ; B-7 - 28
+068+  1178 8A 01           db  $8A, $01    ; C-8 - 26
+069+  117A 89 01           db  $89, $01    ; C#8 - 25
+070+  117C 87 01           db  $87, $01    ; D-8 - 23
+071+  117E 86 01           db  $86, $01    ; D#8 - 22
+072+  1180 85 01           db  $85, $01    ; E-8 - 21
+073+  1182 83 01           db  $83, $01    ; F-8 - 19
+074+  1184 82 01           db  $82, $01    ; F#8 - 18
+075+  1186 81 01           db  $81, $01    ; G-8 - 17
+076+  1188 80 01           db  $80, $01    ; G#8 - 16
+077+  118A 8F 00           db  $8F, $00    ; A-8 - 15
+078+  118C 8E 00           db  $8E, $00    ; A#8 - 14
+079+  118E 8E 00           db  $8E, $00    ; B-8 - 14
+080+  1190             
+081+  1190             ;****************************************************************************
+082+  1190             ; FMFreqTable
+083+  1190             ; Frequency table for all FM notes
+084+  1190             ;****************************************************************************
+085+  1190             
+086+  1190             FMFreqTable:
+087+  1190                 dw  644, 681, 722, 765
+087+  1190 8402A902D202FD02
+088+  1198                 dw  810, 858, 910, 964
+088+  1198 2A035A038E03C403
+089+  11A0                 dw  1021, 1081, 1146, 1214
+089+  11A0 FD0339047A04BE04
+090+  11A8             
+091+  11A8             ;****************************************************************************
+092+  11A8             ; PSGShiftTable
+093+  11A8             ; Semitone shifting table for PSG instruments
+094+  11A8             ;****************************************************************************
+095+  11A8             
+096+  11A8             PSGShiftTable:
+097+  11A8 00              db  0
+098+  11A9                 db  2, 4, 6, 8, 10, 12
+098+  11A9 020406080A0C
+099+  11AF                 db  -2, -4, -6, -8, -10, -12
+099+  11AF FEFCFAF8F6F4
+100+  11B5             
+101+  11B5             ;****************************************************************************
+102+  11B5             ; DummyFMInstr
+103+  11B5             ; Dummy FM instrument to mute FM channels...
+104+  11B5             ;
+105+  11B5             ; To-do: put this in its own file? Although I'd like for this table to stay
+106+  11B5             ; in this area in memory
+107+  11B5             ;****************************************************************************
+108+  11B5             
+109+  11B5             DummyFMInstr:
+110+  11B5 7F              db  $7F         ; $40..$4C
+111+  11B6 00              db  $00         ; $50..$5C
+112+  11B7 1F              db  $1F         ; $60..$6C
+113+  11B8 1F              db  $1F         ; $70..$7C
+114+  11B9 FF              db  $FF         ; $80..$8C
+115+  11BA 00              db  $00         ; $90..$9C
+015   11BB                 include "core/vars.z80"
+001+  11BB             ;****************************************************************************
+002+  11BB             ; Player variables
+003+  11BB             ;****************************************************************************
+004+  11BB             
+005+  11BB FF              ds $100-($&$FF), $FF
+006+  1200 00          RAM_PSGData:        ds 4*16         ; PSG envelope data
+007+  1240                                                   ; ds 1 ... Channel volume
+008+  1240                                                   ; ds 1 ... Global volume
+009+  1240                                                   ; ds 3 ... Current address
+010+  1240                                                   ; ds 3 ... Looping address
+011+  1240                                                   ; ds 3 ... Start address
+012+  1240                                                   ; ds 1 ... Padding
+013+  1240                                                   ; ds 3 ... BGM instrument address
+014+  1240                                                   ; ds 1 ... BGM channel volume
+015+  1240             
+016+  1240 00          RAM_BGMFMInstr:     ds 8            ; FM instruments used by BGM
+017+  1248 00          RAM_BGMFMVol:       ds 8            ; FM volumes used by BGM
+018+  1250 C0          RAM_BGMFMPan:       ds 8, $C0       ; FM panning used by BGM
+019+  1258             
+020+  1258 00          RAM_FMVol:          ds 8            ; FM volume of each channel
+021+  1260 00          RAM_FMData:         ds 8*5          ; FM info (for volume handling)
+022+  1288                                                   ; ds 8*1 ... Register $B0
+023+  1288                                                   ; ds 8*1 ... Register $40
+024+  1288                                                   ; ds 8*1 ... Register $44
+025+  1288                                                   ; ds 8*1 ... Register $48
+026+  1288                                                   ; ds 8*1 ... Register $4C
+027+  1288             
+028+  1288 00          RAM_Locked:         ds 12           ; Locked channels
+029+  1294 00          RAM_PSGNote:        ds 4            ; Current PSG notes
+030+  1298             
+031+  1298 00          RAM_LastBank:       ds 1            ; Last accessed bank
+032+  1299             
+033+  1299             RAM_BGMData:                        ; Where BGM data starts
+034+  1299 00          RAM_BGMPlaying:     ds 1              ; Set if a BGM is playing
+035+  129A 00          RAM_BGMDelay:       ds 1              ; How many ticks to wait
+036+  129B 00          RAM_BGMBank:        ds 1              ; Current BGM bank
+037+  129C 00          RAM_BGMAddress:     ds 2              ; Current BGM address
+038+  129E 00          RAM_BGMLoopPoint:   ds 3              ; BGM loop point
+039+  12A1             
+040+  12A1             RAM_SFXData:                        ; Where SFX data starts
+041+  12A1 00          RAM_SFXPlaying:     ds 1              ; Set if a SFX is playing
+042+  12A2 00          RAM_SFXDelay:       ds 1              ; How many ticks to wait
+043+  12A3 00          RAM_SFXBank:        ds 1              ; Current SFX bank
+044+  12A4 00          RAM_SFXAddress:     ds 2              ; Current SFX address
+045+  12A6 00          RAM_SFXLoopPoint:   ds 3              ; SFX loop point
+046+  12A9             
+047+  12A9 00          RAM_Paused:         ds 1            ; Set if BGM stream is paused
+048+  12AA             
+049+  12AA 01          RAM_PCMBank1:       db 1            ; (not implemented yet)
+050+  12AB 01 00       RAM_PCMAddr1:       dw 1            ; (not implemented yet)
+051+  12AD 01          RAM_PCMBank2:       db 1            ; (not implemented yet)
+052+  12AE 01 00       RAM_PCMAddr2:       dw 1            ; (not implemented yet)
+053+  12B0             
+054+  12B0 00          RAM_Scratch:        ds 32           ; Scratch bytes, may be useful when
+055+  12D0                                                   ; buffering to speed up to avoid bank
+056+  12D0                                                   ; switching conflicts
+057+  12D0             
+058+  12D0 FF              ds $F0-($&$FF), $FF
+059+  12F0             RAM_PCMBuffer:      ds 0            ; PCM buffer
+060+  12F0 00          RAM_PCMBuffer1:     ds 8            ; (not implemented yet)
+061+  12F8 00          RAM_PCMBuffer2:     ds 8            ; (not implemented yet)
+062+  1300             
+063+  1300             ;****************************************************************************
+064+  1300             ; Pointer list starts being stored from here
+065+  1300             ; $300 (768) bytes are needed to store the pointer list
+066+  1300             ;
+067+  1300             ; Format for a pointer list entry is as follows:
+068+  1300             ;   RAM_PointerList[$000+n] = address high
+069+  1300             ;   RAM_PointerList[$100+n] = address low
+070+  1300             ;   RAM_PointerList[$200+n] = bank
+071+  1300             ;****************************************************************************
+072+  1300             
+073+  1300             RAM_PointerList: equ $1C00
+074+  1300             
+075+  1300             ;****************************************************************************
+076+  1300             ; 68000 communication variables
+077+  1300             ;****************************************************************************
+078+  1300             
+079+  1300             RAM_Stack:          equ $1FE0       ; Where stack starts
+080+  1300             
+081+  1300             RAM_GlobalVol:      equ $1FE0       ; Global volume for all channels
+082+  1300             RAM_Status:         equ $1FF0       ; Current playback status
+083+  1300             RAM_RefreshVol:     equ $1FF1       ; Set to refresh all volumes
+084+  1300             RAM_Flags:          equ $1FF2       ; Track flags
+085+  1300             
+086+  1300             RAM_Command:        equ $1FFF       ; Command type
+087+  1300             RAM_ComAddr:        equ $1FFD       ; Command address parameter
+088+  1300             RAM_ComBank:        equ $1FFC       ; Command bank parameter
+089+  1300             
+090+  1300             RAM_Command2:       equ $1FFB       ; (second slot for all the above)
+091+  1300             RAM_ComAddr2:       equ $1FF9
+092+  1300             RAM_ComBank2:       equ $1FF8
