@@ -1,3 +1,0 @@
--Ires
--Iinc
--I../../include
